@@ -1,33 +1,9 @@
-import 'package:angel_gabriel/core/resources/app-images.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../../../../core/resources/app-colors.dart';
+import 'package:flutter/services.dart';
+import '../../../../core/cache/cache_helper.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../home-bottombar/view.dart';
 import '../signup/view.dart';
-
-
-void main() => runApp(const MyApp());
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      // Force RTL + Arabic
-      locale: const Locale('ar'),
-      builder: (context, child) =>
-          Directionality(textDirection: TextDirection.rtl, child: child!),
-      theme: ThemeData(
-        useMaterial3: true,
-        // Applies Tajawal to every default text style in the app
-        textTheme: GoogleFonts.tajawalTextTheme(),
-        primaryTextTheme: GoogleFonts.tajawalTextTheme(),
-      ),
-      home: const LoginPage(),
-    );
-  }
-}
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -37,10 +13,20 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _obscure = true;
-  bool _remember = false;
+
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+
+  static const Color primaryColor = Color(0xFF7A1428);
+  static const Color goldColor = Color(0xFFF3B14E);
+  static const Color bgColor = Color(0xFFFFF8F5);
+  static const Color cardColor = Colors.white;
+  static const Color inputFillColor = Color(0xFFF3ECEA);
+  static const Color textDarkColor = Color(0xFF2B191B);
+  static const Color textMutedColor = Color(0xFF8C7A7B);
 
   @override
   void dispose() {
@@ -49,427 +35,440 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  void _login() {
-    // TODO: add your login logic
+  String _normalizeNumbers(String input) {
+    const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    const english = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    String result = input;
+    for (int i = 0; i < arabic.length; i++) {
+      result = result.replaceAll(arabic[i], english[i]);
+    }
+    return result.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
-  void _biometricLogin() {
-    // TODO: add your fingerprint / Face ID logic
-  }
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
 
+    setState(() => _isLoading = true);
+
+    try {
+      final cleanPhone = _normalizeNumbers(_phoneController.text);
+      final response = await ApiClient.post(
+        '/auth/login',
+        body: {
+          'phone': cleanPhone,
+          'password': _passwordController.text.trim(),
+        },
+      );
+
+      final user = response['user'] as Map<String, dynamic>? ?? <String, dynamic>{};
+      await CacheHelper.saveSession(
+        token: (response['token'] ?? '').toString(),
+        userId: (user['id'] ?? '').toString(),
+        fullName: (user['fullName'] ?? '').toString(),
+        phone: (user['phone'] ?? cleanPhone).toString(),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text((response['message'] ?? 'تم تسجيل الدخول بنجاح').toString()),
+          backgroundColor: primaryColor,
+        ),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const Bottombar()),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(textDirection: TextDirection.rtl,
-        child:
-      Scaffold(
-      body: Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFFFF8F2), Color(0xFFFDEFEA)],
+    return Scaffold(
+      backgroundColor: bgColor,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildHeader(),
+                  const SizedBox(height: 32),
+                  _buildFormCard(),
+                  const SizedBox(height: 28),
+                  _buildFooter(),
+                ],
+              ),
+            ),
           ),
         ),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: IntrinsicHeight(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 12),
-                          _buildTopBar(),
-                          const SizedBox(height: 24),
-                          _buildLogo(),
-                          const SizedBox(height: 16),
-                          _buildWelcome(),
-                          const SizedBox(height: 22),
-                          _buildFormCard(),
-                          const SizedBox(height: 16),
-                          const SizedBox(height: 24),
-                          _buildRegisterPill(),
-                          const SizedBox(height: 14),
-                          _buildFooter(),
-                          const SizedBox(height: 14),
-                        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Column(
+      children: [
+        Container(
+          width: 96,
+          height: 96,
+          decoration: BoxDecoration(
+            color: primaryColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: goldColor.withOpacity(0.5), width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: primaryColor.withOpacity(0.2),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(8),
+          child: ClipOval(
+            child: Image.asset(
+              'assets/images/logo.png',
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.church_rounded,
+                  color: goldColor,
+                  size: 44,
+                );
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'أُسْرَةُ المَلَاكِ غَبْرِيَالَ',
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            color: primaryColor,
+            height: 1.2,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'كنيسة السيدة العذراء مريم بالزيتون',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: textMutedColor,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: 48,
+          height: 3.5,
+          decoration: BoxDecoration(
+            color: goldColor,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFormCard() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'تسجيل الدخول',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: textDarkColor,
+              ),
+              textAlign: TextAlign.right,
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'مرحباً بك مجدداً في رحاب الأسرة',
+              style: TextStyle(fontSize: 13, color: textMutedColor),
+              textAlign: TextAlign.right,
+            ),
+            const SizedBox(height: 24),
+            _buildFieldLabel('رقم الموبايل'),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              textDirection: TextDirection.ltr,
+              textAlign: TextAlign.right,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(11),
+              ],
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'برجاء إدخال رقم الموبايل';
+                }
+                final cleaned = _normalizeNumbers(value);
+                if (cleaned.length < 11 || !cleaned.startsWith('01')) {
+                  return 'برجاء إدخال رقم موبايل مصري صحيح (11 رقم)';
+                }
+                return null;
+              },
+              decoration: _inputDecoration(
+                hintText: '01xxxxxxxxx',
+                prefixIcon: Icons.phone_iphone_rounded,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildFieldLabel('كلمة المرور'),
+                GestureDetector(
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('تواصل مع خادم النظام بالاجتماع لإعادة تعيين كلمة المرور'),
                       ),
+                    );
+                  },
+                  child: const Text(
+                    'نسيت كلمة المرور؟',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: primaryColor,
                     ),
                   ),
                 ),
-              );
-            },
-          ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'برجاء إدخال كلمة المرور';
+                }
+                if (value.length < 6) {
+                  return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
+                }
+                return null;
+              },
+              decoration: _inputDecoration(
+                hintText: '••••••••',
+                prefixIcon: Icons.lock_outline_rounded,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: textMutedColor,
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    setState(() => _obscurePassword = !_obscurePassword);
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              height: 54,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _login,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  elevation: 4,
+                  shadowColor: primaryColor.withOpacity(0.4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                      )
+                    : const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'دخول',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Icon(Icons.login_rounded, size: 20),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(child: Divider(color: Colors.grey.shade200)),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    'أو',
+                    style: TextStyle(fontSize: 12, color: textMutedColor),
+                  ),
+                ),
+                Expanded(child: Divider(color: Colors.grey.shade200)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'ليس لديك حساب؟ ',
+                  style: TextStyle(fontSize: 13, color: textMutedColor),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SignUpPage()),
+                    );
+                  },
+                  child: const Text(
+                    'إنشاء حساب جديد',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
-    ));
-  }
-
-  // ---------------------------------------------------------------- Top bar
-  Widget _buildTopBar() {
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: AppColors.gold,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            'كنيسة العذراء والملاك غبريال - جامعيين',
-            style: GoogleFonts.tajawal(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppColors.gold,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
-  // ------------------------------------------------------------------- Logo
-  Widget _buildLogo() {
-    return Container(
-      width: 84,
-      height: 84,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white, width: 3),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.gold.withOpacity(0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(17),
-        // TODO: put your logo here, for example:
-        child: Image.asset(
-            AppImages.Applogo
-            , fit: BoxFit.cover),
-        // child: const SizedBox.expand(),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------- Welcome
-  Widget _buildWelcome() {
+  Widget _buildFooter() {
     return Column(
       children: [
-        Text(
-          'مرحباً بك مجدداً',
-          style: GoogleFonts.tajawal(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textDark,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'اجتماع الملاك غبريال الجامعي',
-          style: GoogleFonts.tajawal(
-            fontSize: 12,
+        const Text(
+          '"فَرِحْتُ بِالْقَائِلِينَ لِي: إِلَى بَيْتِ الرَّبِّ نَذْهَبُ"',
+          style: TextStyle(
+            fontSize: 13,
             fontWeight: FontWeight.w500,
-            color: AppColors.textGrey,
+            color: textMutedColor,
           ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _buildDot(),
+            const SizedBox(width: 6),
+            _buildDot(),
+            const SizedBox(width: 6),
+            _buildDot(),
+          ],
         ),
       ],
     );
   }
 
-  // -------------------------------------------------------------- Form card
-  Widget _buildFormCard() {
+  Widget _buildDot() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      width: 5,
+      height: 5,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _label('رقم الهاتف'),
-          const SizedBox(height: 8),
-          _buildPhoneField(),
-          const SizedBox(height: 16),
-          _label('كلمة المرور'),
-          const SizedBox(height: 8),
-          _buildPasswordField(),
-          const SizedBox(height: 10),
-          _buildRememberMe(),
-          const SizedBox(height: 14),
-          _buildLoginButton(),
-          const SizedBox(height: 18),
-          Center(
-            child: Text(
-              'أو تسجيل الدخول السريع عبر البصمة',
-              style: GoogleFonts.tajawal(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textGrey,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          _buildBiometricButton(),
-        ],
+        color: goldColor.withOpacity(0.7),
+        shape: BoxShape.circle,
       ),
     );
   }
 
-  Widget _label(String text) {
+  Widget _buildFieldLabel(String label) {
     return Text(
-      text,
-      style: GoogleFonts.tajawal(
+      label,
+      style: const TextStyle(
         fontSize: 13,
         fontWeight: FontWeight.w700,
-        color: AppColors.textDark,
+        color: textDarkColor,
       ),
     );
   }
 
-  InputDecoration _fieldDecoration({
-    required String hint,
-    Widget? prefixIcon,
+  InputDecoration _inputDecoration({
+    required String hintText,
+    required IconData prefixIcon,
     Widget? suffixIcon,
   }) {
-    OutlineInputBorder border(Color c) => OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: BorderSide(color: c, width: 1.2),
-    );
-
     return InputDecoration(
-      hintText: hint,
-      hintStyle: GoogleFonts.tajawal(
-        fontSize: 13,
-        color: AppColors.hint,
-      ),
+      hintText: hintText,
+      hintStyle: TextStyle(color: textMutedColor.withOpacity(0.6), fontSize: 14),
       filled: true,
-      fillColor: AppColors.fieldFill,
-      prefixIcon: prefixIcon,
+      fillColor: inputFillColor,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      prefixIcon: Icon(prefixIcon, color: textMutedColor, size: 20),
       suffixIcon: suffixIcon,
-      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-      enabledBorder: border(AppColors.fieldBorder),
-      focusedBorder: border(AppColors.burgundy),
-      border: border(AppColors.fieldBorder),
-    );
-  }
-
-  Widget _buildPhoneField() {
-    return TextField(
-      controller: _phoneController,
-      keyboardType: TextInputType.phone,
-      style: GoogleFonts.tajawal(fontSize: 14, color: AppColors.textDark),
-      decoration: _fieldDecoration(
-        hint: 'أدخل رقم الهاتف ..',
-        prefixIcon: Icon(
-          Icons.contact_phone_outlined,
-          color: AppColors.hint,
-          size: 22,
-        ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
       ),
-    );
-  }
-
-  Widget _buildPasswordField() {
-    return TextField(
-      controller: _passwordController,
-      obscureText: _obscure,
-      style: GoogleFonts.tajawal(fontSize: 14, color: AppColors.textDark),
-      decoration: _fieldDecoration(
-        hint: '••••••••',
-        prefixIcon: Icon(
-          Icons.lock_outline,
-          color: AppColors.hint,
-          size: 22,
-        ),
-        suffixIcon: IconButton(
-          onPressed: () => setState(() => _obscure = !_obscure),
-          icon: Icon(
-            _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-            color: AppColors.hint,
-            size: 22,
-          ),
-        ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
       ),
-    );
-  }
-
-  Widget _buildRememberMe() {
-    return Row(
-      children: [
-        SizedBox(
-          width: 22,
-          height: 22,
-          child: Checkbox(
-            value: _remember,
-            activeColor: AppColors.burgundy,
-            side: BorderSide(color: AppColors.fieldBorder, width: 1.5),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(5),
-            ),
-            onChanged: (v) => setState(() => _remember = v ?? false),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          'تذكرني',
-          style: GoogleFonts.tajawal(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textGrey,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLoginButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton(
-        onPressed: _login,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.burgundy,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          shadowColor: AppColors.burgundy.withOpacity(0.4),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.login, size: 20),
-            const SizedBox(width: 8),
-            Text(
-              'تسجيل الدخول',
-              style: GoogleFonts.tajawal(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: primaryColor, width: 1.5),
       ),
-    );
-  }
-
-  Widget _buildBiometricButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: OutlinedButton(
-        onPressed: _biometricLogin,
-        style: OutlinedButton.styleFrom(
-          backgroundColor: AppColors.fieldFill,
-          side: BorderSide(color: AppColors.fieldBorder),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.fingerprint, color: AppColors.gold, size: 24),
-            const SizedBox(width: 8),
-            Text(
-              'بصمة الإصبع / Face ID',
-              style: GoogleFonts.tajawal(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textDark,
-              ),
-            ),
-          ],
-        ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.2),
       ),
-    );
-  }
-
-  // --------------------------------------------------------- Register pill
-  Widget _buildRegisterPill() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'ليس لديك حساب ؟',
-            style: GoogleFonts.tajawal(
-              fontSize: 12,
-              color: AppColors.textGrey,
-            ),
-          ),
-          const SizedBox(width: 4),
-          GestureDetector(
-            onTap:
-                () {
-              Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context){
-                    return SignUpPage();
-                  })
-              );
-            },
-            child: Text(
-              'إنشاء حساب جديد',
-              style: GoogleFonts.tajawal(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: AppColors.burgundy,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ----------------------------------------------------------------- Footer
-  Widget _buildFooter() {
-    return Text(
-      ' اجتماع جامعيين © 2026',
-      textAlign: TextAlign.center,
-      style: GoogleFonts.tajawal(
-        fontSize: 10,
-        color: AppColors.textGrey,
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
       ),
     );
   }

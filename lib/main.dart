@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
-import 'features/splash/view.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'core/cache/cache_helper.dart';
+import 'features/auth/view/splash/view.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await CacheHelper.init();
   runApp(const MyApp());
 }
 
@@ -12,10 +16,20 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Angel Gabriel',
+      title: 'أسرة الملاك غبريال',
+      locale: const Locale('ar', 'AE'),
+      supportedLocales: const [
+        Locale('ar', 'AE'),
+        Locale('en', 'US'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
-
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7A1428)),
+        useMaterial3: true,
       ),
       home: const SplashPage(),
     );

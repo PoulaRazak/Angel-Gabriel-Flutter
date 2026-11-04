@@ -1,107 +1,62 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../../../core/network/api_client.dart';
 
-// Your external colors file (class AppColors).
-import '../../../../core/resources/app-colors.dart';
-
-/* ========================================================================== */
-/*  MODELS                                                                    */
-/* ========================================================================== */
-
-class AttendanceResult {
-  final String serviceName; // الخدمة / الاجتماع
-  final String dateLabel; // التاريخ
-  final String timeLabel; // وقت التسجيل
-  final int points; // نقاط الحضور
-
-  const AttendanceResult({
-    required this.serviceName,
-    required this.dateLabel,
-    required this.timeLabel,
-    required this.points,
-  });
-}
-
-/// Throw this from the API service to show a custom error message.
-class AttendanceException implements Exception {
+class AttendanceScanResult {
+  final bool success;
   final String message;
-  const AttendanceException(this.message);
-}
+  final String? studentName;
+  final String? meetingTitle;
+  final DateTime? timestamp;
 
-/* ========================================================================== */
-/*  API SERVICE  (empty on purpose: put your API logic here)                  */
-/* ========================================================================== */
+  const AttendanceScanResult({
+    required this.success,
+    required this.message,
+    this.studentName,
+    this.meetingTitle,
+    this.timestamp,
+  });
+
+  factory AttendanceScanResult.fromJson(Map<String, dynamic> json) {
+    return AttendanceScanResult(
+      success: json['success'] == true,
+      message: (json['message'] ?? '').toString(),
+      studentName: json['studentName']?.toString(),
+      meetingTitle: json['meetingTitle']?.toString(),
+      timestamp: json['timestamp'] != null
+          ? DateTime.tryParse(json['timestamp'].toString())
+          : DateTime.now(),
+    );
+  }
+}
 
 class AttendanceApiService {
-  /// Send the scanned QR value to your server and return the result.
-  Future<AttendanceResult> registerAttendance(String qrCode) async {
-    // TODO: call your API here and parse the response, for example:
-    //
-    // final response = await dio.post('/attendance/scan', data: {'code': qrCode});
-    // return AttendanceResult(
-    //   serviceName: response.data['service'],
-    //   dateLabel: response.data['date'],
-    //   timeLabel: response.data['time'],
-    //   points: response.data['points'],
-    // );
-    //
-    // If the code is invalid / expired:
-    // throw const AttendanceException('رمز غير صالح أو منتهي الصلاحية');
-
-    // Temporary placeholder so the screen works. Remove when API is ready.
-    await Future.delayed(const Duration(milliseconds: 800));
-    return const AttendanceResult(
-      serviceName: 'اجتماع الشباب العام',
-      dateLabel: 'الجمعة 27 أكتوبر 2023',
-      timeLabel: '07:10 مساءً',
-      points: 10,
-    );
+  Future<AttendanceScanResult> submitQrAttendance({
+    required String qrCode,
+  }) async {
+    try {
+      final json = await ApiClient.post(
+        '/attendance/scan',
+        body: {'qrCode': qrCode},
+      );
+      return AttendanceScanResult.fromJson(json);
+    } catch (e) {
+      return AttendanceScanResult(
+        success: false,
+        message: e.toString(),
+      );
+    }
   }
 
-  /// Ask the hall servant for help.
-  Future<void> requestHelp() async {
-    // TODO: call your help-request API here.
+  Future<void> requestSystemServantHelp() async {
+    await ApiClient.post(
+      '/attendance/help',
+      body: {
+        'message': 'طلب مساعدة لتسجيل الحضور من شاشة مسح QR بالقاعة',
+      },
+    );
   }
 }
-
-/* ========================================================================== */
-/*  EXTRA COLORS (not in your AppColors) + TEXT HELPER                        */
-/* ========================================================================== */
-
-class _QC {
-  static const successDark = Color(0xFF0B4D2C);
-  static const titleGreen = Color(0xFF0B3D24);
-  static const success = Color(0xFF2E9E5B);
-  static const successLight = Color(0xFF6FD99A);
-  static const successBg = Color(0xFFE3F6EA);
-  static const danger = Color(0xFFD64545);
-  static const dangerBg = Color(0xFFFCE8E8);
-}
-
-TextStyle _t(
-    double size, {
-      FontWeight weight = FontWeight.w500,
-      Color color = AppColors.textDark,
-      double? height,
-    }) =>
-    GoogleFonts.tajawal(
-      fontSize: size,
-      fontWeight: weight,
-      color: color,
-      height: height,
-    );
-
-enum _ScanStatus { scanning, processing, success, failure }
-
-/* ========================================================================== */
-/*  QR PAGE                                                                   */
-/*  Open it with:                                                             */
-/*  Navigator.push(context, MaterialPageRoute(builder: (_) => const QRPage()))*/
-/* ========================================================================== */
 
 class QRPage extends StatefulWidget {
   const QRPage({super.key});
@@ -110,729 +65,525 @@ class QRPage extends StatefulWidget {
   State<QRPage> createState() => _QRPageState();
 }
 
-class _QRPageState extends State<QRPage> with WidgetsBindingObserver {
-  final _service = AttendanceApiService();
+class _QRPageState extends State<QRPage> with SingleTickerProviderStateMixin {
+  static const Color kPrimaryBurgundy = Color(0xFF7B1E2B);
+  static const Color kAccentGold = Color(0xFFD4AF37);
+  static const Color kCreamBackground = Color(0xFFFAF6F2);
+  static const Color kCardSand = Color(0xFFF3ECE4);
+  static const Color kScannerDark = Color(0xFF231917);
+  static const Color kTextDark = Color(0xFF2D1E1B);
+  static const Color kTextMuted = Color(0xFF7A6A65);
 
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-    facing: CameraFacing.back,
-    formats: const [BarcodeFormat.qrCode],
-  );
+  final AttendanceApiService _apiService = AttendanceApiService();
+  late final MobileScannerController _scannerController;
+  late final AnimationController _laserController;
 
-  _ScanStatus _status = _ScanStatus.scanning;
-  AttendanceResult? _result;
-  String _errorMessage = '';
+  bool _isProcessing = false;
+  bool _isFlashOn = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+    _scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+    );
+
+    _laserController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _controller.dispose();
+    _laserController.dispose();
+    _scannerController.dispose();
     super.dispose();
   }
 
-  // Stop the camera when the app goes to background, restart when it returns.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!_controller.value.hasCameraPermission) return;
-    switch (state) {
-      case AppLifecycleState.resumed:
-        if (_status == _ScanStatus.scanning) _safeStart();
-        break;
-      case AppLifecycleState.inactive:
-        _safeStop();
-        break;
-      default:
-        break;
-    }
-  }
+  Future<void> _onBarcodeDetected(BarcodeCapture capture) async {
+    if (_isProcessing) return;
 
-  Future<void> _safeStart() async {
-    try {
-      await _controller.start();
-    } catch (_) {}
-  }
+    final List<Barcode> barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
 
-  Future<void> _safeStop() async {
-    try {
-      await _controller.stop();
-    } catch (_) {}
-  }
+    final String? rawValue = barcodes.first.rawValue;
+    if (rawValue == null || rawValue.trim().isEmpty) return;
 
-  // ---------------------------------------------------------------- Logic
-  Future<void> _onDetect(BarcodeCapture capture) async {
-    if (_status != _ScanStatus.scanning) return;
-
-    String? code;
-    for (final b in capture.barcodes) {
-      final v = b.rawValue;
-      if (v != null && v.isNotEmpty) {
-        code = v;
-        break;
-      }
-    }
-    if (code == null) return;
-
-    HapticFeedback.mediumImpact();
-    setState(() => _status = _ScanStatus.processing);
+    setState(() => _isProcessing = true);
+    await _scannerController.stop();
 
     try {
-      final result = await _service.registerAttendance(code);
+      final result = await _apiService.submitQrAttendance(qrCode: rawValue);
       if (!mounted) return;
-      setState(() {
-        _result = result;
-        _status = _ScanStatus.success;
-      });
-      _safeStop();
-    } on AttendanceException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = e.message;
-        _status = _ScanStatus.failure;
-      });
+      await _showResultBottomSheet(result);
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _errorMessage = 'حدث خطأ أثناء تسجيل الحضور، حاول مرة أخرى';
-        _status = _ScanStatus.failure;
-      });
+      _showSnackBar('حدث خطأ أثناء الاتصال بالخادم، حاول مرة أخرى.', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        await _scannerController.start();
+      }
     }
   }
 
-  void _scanAgain() {
-    setState(() {
-      _result = null;
-      _errorMessage = '';
-      _status = _ScanStatus.scanning;
-    });
-    _safeStart();
+  Future<void> _toggleFlash() async {
+    await _scannerController.toggleTorch();
+    setState(() => _isFlashOn = !_isFlashOn);
   }
 
-  void _onShare() {
-    // TODO: share the attendance result (e.g. with the share_plus package).
+  Future<void> _switchCamera() async {
+    await _scannerController.switchCamera();
   }
 
-  Future<void> _onRequestHelp() async {
-    // TODO: call _service.requestHelp() and show feedback to the user.
-    await _service.requestHelp();
+  Future<void> _onHelpRequested() async {
+    try {
+      await _apiService.requestSystemServantHelp();
+      if (!mounted) return;
+      _showSnackBar('تم إرسال طلب المساعدة لخادم النظام بالقاعة.');
+    } catch (_) {
+      if (!mounted) return;
+      _showSnackBar('تعذر إرسال الطلب حالياً.', isError: true);
+    }
   }
 
-  void _goHome() {
-    // Pass `true` if you want the home screen to refresh after a success.
-    Navigator.maybePop(context, _status == _ScanStatus.success);
-  }
-
-  // ---------------------------------------------------------------- Build
-  @override
-  Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Camera preview
-            MobileScanner(
-              controller: _controller,
-              onDetect: _onDetect,
-              fit: BoxFit.cover,
-            ),
-            // Dark overlay
-            Container(color: Colors.black.withOpacity(0.35)),
-            // Top gradient for header readability
-            Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                height: 140,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.75),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // Content
-            SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  Expanded(child: _buildCameraArea()),
-                  _buildSheet(),
-                ],
-              ),
-            ),
-          ],
+  void _showSnackBar(String text, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          text,
+          textAlign: TextAlign.right,
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
+        backgroundColor: isError ? Colors.red.shade700 : kPrimaryBurgundy,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
-  // --------------------------------------------------------------- Header
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      child: Row(
-        children: [
-          // Back pill (right side in RTL). arrow_back is mirrored in RTL.
-          InkWell(
-            onTap: _goHome,
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white.withOpacity(0.2)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.arrow_back, color: Colors.white, size: 16),
-                  const SizedBox(width: 6),
-                  Text('الرجوع للرئيسية',
-                      style: _t(11,
-                          weight: FontWeight.w700, color: Colors.white)),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
+  Future<void> _showResultBottomSheet(AttendanceScanResult result) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: kCreamBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text('مسح رمز الحضور',
-                    style: _t(16, weight: FontWeight.w800, color: Colors.white)),
-                const SizedBox(height: 2),
-                ValueListenableBuilder<MobileScannerState>(
-                  valueListenable: _controller,
-                  builder: (context, state, _) {
-                    final active = state.isRunning;
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          active ? 'الكاميرا متصلة ونشطة' : 'الكاميرا متوقفة',
-                          style: _t(10, color: Colors.white70),
-                        ),
-                        const SizedBox(width: 5),
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: active ? _QC.success : AppColors.hint,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+                Container(
+                  width: 48,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                CircleAvatar(
+                  radius: 36,
+                  backgroundColor: result.success
+                      ? Colors.green.shade50
+                      : Colors.red.shade50,
+                  child: Icon(
+                    result.success
+                        ? Icons.check_circle_rounded
+                        : Icons.error_rounded,
+                    size: 48,
+                    color: result.success
+                        ? Colors.green.shade700
+                        : Colors.red.shade700,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  result.message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: kTextDark,
+                  ),
+                ),
+                if (result.meetingTitle != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    result.meetingTitle!,
+                    style: const TextStyle(fontSize: 14, color: kTextMuted),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kPrimaryBurgundy,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      if (result.success && mounted) {
+                        Navigator.of(context).pop(true);
+                      }
+                    },
+                    child: Text(
+                      result.success ? 'العودة للرئيسية' : 'مسح مرة أخرى',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
-          // Flash button (left side in RTL)
-          ValueListenableBuilder<MobileScannerState>(
-            valueListenable: _controller,
-            builder: (context, state, _) {
-              final on = state.torchState == TorchState.on;
-              final unavailable = state.torchState == TorchState.unavailable;
-              return Opacity(
-                opacity: unavailable ? 0.4 : 1,
-                child: InkWell(
-                  onTap: unavailable ? null : () => _controller.toggleTorch(),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: on
-                          ? AppColors.gold
-                          : Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withOpacity(0.2)),
-                    ),
-                    child: Icon(
-                      on ? Icons.flash_on : Icons.flash_off,
-                      color: on ? AppColors.burgundy : AppColors.gold,
-                      size: 22,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------- Camera area
-  Widget _buildCameraArea() {
-    return ValueListenableBuilder<MobileScannerState>(
-      valueListenable: _controller,
-      builder: (context, state, _) {
-        // Camera error (e.g. permission denied)
-        if (state.error != null) {
-          final denied =
-              state.error!.errorCode == MobileScannerErrorCode.permissionDenied;
-          return _cameraError(denied);
-        }
-
-        return LayoutBuilder(
-          builder: (context, c) {
-            final side = math
-                .min(c.maxWidth * 0.7, c.maxHeight * 0.85)
-                .clamp(110.0, 260.0)
-                .toDouble();
-            return Center(
-              child: SizedBox(
-                width: side,
-                height: side,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CustomPaint(
-                      size: Size(side, side),
-                      painter: _CornerPainter(color: AppColors.gold),
-                    ),
-                    Icon(
-                      Icons.center_focus_weak,
-                      color: Colors.white.withOpacity(0.8),
-                      size: 30,
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
         );
       },
     );
   }
 
-  Widget _cameraError(bool denied) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: kCreamBackground,
+        appBar: _buildAppBar(),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+            child: Column(
+              children: [
+                const SizedBox(height: 8),
+                const Text(
+                  'مسح رمز الاستجابة السريع',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: kPrimaryBurgundy,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'وجه الكاميرا نحو الرمز الموجود في القاعة لتسجيل حضورك فوراً في الاجتماع',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.5,
+                    color: kTextMuted,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _buildScannerCard(),
+                const SizedBox(height: 20),
+                _buildCameraControlsRow(),
+                const SizedBox(height: 20),
+                _buildInstructionCard(),
+                const SizedBox(height: 18),
+                _buildHelpButton(),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: kCreamBackground,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      centerTitle: false,
+      titleSpacing: 16,
+      leading: IconButton(
+        onPressed: () => Navigator.of(context).maybePop(),
+        icon: const Icon(
+          Icons.arrow_back_rounded,
+          color: kPrimaryBurgundy,
+          size: 26,
+        ),
+      ),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: kPrimaryBurgundy.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(color: kAccentGold, width: 1.2),
+            ),
+            child: const Icon(
+              Icons.church_rounded,
+              color: kPrimaryBurgundy,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'أُسْرَةُ المَلَاكِ غَبْرِيَالَ',
+            style: TextStyle(
+              color: kPrimaryBurgundy,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScannerCard() {
+    return AspectRatio(
+      aspectRatio: 0.88,
+      child: Container(
+        decoration: BoxDecoration(
+          color: kScannerDark,
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.18),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            const Icon(Icons.no_photography_outlined,
-                color: Colors.white70, size: 40),
-            const SizedBox(height: 10),
-            Text(
-              denied ? 'لا يمكن الوصول إلى الكاميرا' : 'تعذر تشغيل الكاميرا',
-              style: _t(14, weight: FontWeight.w800, color: Colors.white),
+            MobileScanner(
+              controller: _scannerController,
+              onDetect: _onBarcodeDetected,
+              errorBuilder: (context, error) {
+                return _buildScannerPlaceholder();
+              },
             ),
-            const SizedBox(height: 4),
-            Text(
-              denied
-                  ? 'اسمح بالوصول إلى الكاميرا من إعدادات الهاتف ثم حاول مرة أخرى'
-                  : 'حاول مرة أخرى أو أعد تشغيل التطبيق',
-              textAlign: TextAlign.center,
-              style: _t(11, color: Colors.white70, height: 1.5),
+            Container(color: Colors.black.withOpacity(0.35)),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final double frameSize = constraints.maxWidth * 0.68;
+                return SizedBox(
+                  width: frameSize,
+                  height: frameSize,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.15),
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.qr_code_2_rounded,
+                        size: 96,
+                        color: Colors.white24,
+                      ),
+                      CustomPaint(
+                        size: Size(frameSize, frameSize),
+                        painter: _GoldCornersPainter(
+                          color: kAccentGold,
+                          strokeWidth: 4.0,
+                          cornerLength: 28.0,
+                          radius: 18.0,
+                        ),
+                      ),
+                      AnimatedBuilder(
+                        animation: _laserController,
+                        builder: (context, child) {
+                          final double dy =
+                              (_laserController.value * (frameSize - 40)) + 20;
+                          return Positioned(
+                            top: dy,
+                            left: 16,
+                            right: 16,
+                            child: Container(
+                              height: 2.5,
+                              decoration: BoxDecoration(
+                                color: kAccentGold,
+                                borderRadius: BorderRadius.circular(4),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: kAccentGold.withOpacity(0.8),
+                                    blurRadius: 10,
+                                    spreadRadius: 1.5,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: _safeStart,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.burgundy,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+            if (_isProcessing)
+              Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: CircularProgressIndicator(color: kAccentGold),
                 ),
               ),
-              child: Text('إعادة المحاولة',
-                  style: _t(12, weight: FontWeight.w800, color: Colors.white)),
-            ),
           ],
         ),
       ),
     );
   }
 
-  // ---------------------------------------------------------- Bottom sheet
-  Widget _buildSheet() {
-    final maxH = MediaQuery.of(context).size.height * 0.78;
-
+  Widget _buildScannerPlaceholder() {
     return Container(
-      width: double.infinity,
-      constraints: BoxConstraints(maxHeight: maxH),
-      decoration: BoxDecoration(
-        color: Color.lerp(AppColors.fieldFill, Colors.white, 0.5),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-          child: AnimatedSize(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOut,
-            alignment: Alignment.topCenter,
-            child: Column(
-              children: [
-                // Handle
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.fieldBorder,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  child: KeyedSubtree(
-                    key: ValueKey(_status),
-                    child: _sheetContent(),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _buildHelpRow(),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _sheetContent() {
-    switch (_status) {
-      case _ScanStatus.scanning:
-        return _scanningContent();
-      case _ScanStatus.processing:
-        return _processingContent();
-      case _ScanStatus.success:
-        return _successContent(_result!);
-      case _ScanStatus.failure:
-        return _failureContent();
-    }
-  }
-
-  // ----------------------------------------------------------- Scanning
-  Widget _scanningContent() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
-      decoration: _cardDecoration(),
-      child: Column(
+      color: kScannerDark,
+      alignment: Alignment.center,
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.fieldFill,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.fieldBorder),
-            ),
-            child: Icon(Icons.qr_code_scanner,
-                color: AppColors.burgundy, size: 28),
-          ),
-          const SizedBox(height: 12),
-          Text('وجّه الكاميرا نحو رمز QR',
-              style: _t(17, weight: FontWeight.w800, color: AppColors.burgundy)),
-          const SizedBox(height: 4),
+          Icon(Icons.camera_alt_outlined, color: Colors.white38, size: 42),
+          SizedBox(height: 8),
           Text(
-            'ضع الرمز داخل الإطار وسيتم تسجيل حضورك تلقائياً',
-            textAlign: TextAlign.center,
-            style: _t(11.5, color: AppColors.textGrey, height: 1.5),
+            'الكاميرا قيد التشغيل...',
+            style: TextStyle(color: Colors.white54, fontSize: 13),
           ),
         ],
       ),
     );
   }
 
-  // --------------------------------------------------------- Processing
-  Widget _processingContent() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
-      decoration: _cardDecoration(),
-      child: Column(
-        children: [
-          SizedBox(
-            width: 36,
-            height: 36,
-            child: CircularProgressIndicator(
-              color: AppColors.burgundy,
-              strokeWidth: 3.5,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text('جارٍ تسجيل حضورك...',
-              style: _t(14, weight: FontWeight.w800, color: AppColors.burgundy)),
-        ],
-      ),
-    );
-  }
-
-  // ------------------------------------------------------------ Success
-  Widget _successContent(AttendanceResult r) {
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: _QC.successBg),
-            gradient: const LinearGradient(
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-              colors: [Color(0xFFEAF8EF), Colors.white, Colors.white],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              // Check badge
-              Container(
-                width: 82,
-                height: 82,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _QC.success.withOpacity(0.12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _QC.success.withOpacity(0.25),
-                      blurRadius: 24,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: const BoxDecoration(
-                      color: _QC.successDark,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.check_circle_outline,
-                        color: _QC.successLight, size: 30),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text('تم تسجيل حضورك بنجاح!',
-                  style:
-                  _t(21, weight: FontWeight.w800, color: _QC.titleGreen)),
-              const SizedBox(height: 6),
-              Text(
-                'أهلاً بك، بركة صلواتك معنا اليوم تثري جسد الكنيسة والخدمة.',
-                textAlign: TextAlign.center,
-                style: _t(12, color: AppColors.textGrey, height: 1.6),
-              ),
-              const SizedBox(height: 16),
-              // Details box
-              Container(
-                width: double.infinity,
-                padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                decoration: BoxDecoration(
-                  color: AppColors.fieldFill.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.fieldBorder),
-                ),
-                child: Column(
-                  children: [
-                    _detailRow(
-                      icon: Icons.event_available_outlined,
-                      label: 'الخدمة / الاجتماع',
-                      value: Text(r.serviceName,
-                          style: _t(12,
-                              weight: FontWeight.w800,
-                              color: AppColors.burgundy)),
-                    ),
-                    const SizedBox(height: 14),
-                    _detailRow(
-                      icon: Icons.calendar_today_outlined,
-                      label: 'التاريخ',
-                      value: Text(r.dateLabel,
-                          style: _t(12, weight: FontWeight.w700)),
-                    ),
-                    const SizedBox(height: 14),
-                    _detailRow(
-                      icon: Icons.access_time,
-                      label: 'وقت التسجيل',
-                      value: Text(r.timeLabel,
-                          style: _t(12, weight: FontWeight.w800)),
-                    ),
-                    const SizedBox(height: 14),
-                    _detailRow(
-                      icon: Icons.star_border_rounded,
-                      iconColor: AppColors.gold,
-                      label: 'نقاط الحضور',
-                      value: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _QC.successBg,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: _QC.success.withOpacity(0.35)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.add,
-                                size: 13, color: _QC.success),
-                            const SizedBox(width: 2),
-                            Text('${r.points} نقاط',
-                                style: _t(11,
-                                    weight: FontWeight.w800,
-                                    color: _QC.success)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              // Actions
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _onShare,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.burgundy,
-                          foregroundColor: Colors.white,
-                          elevation: 3,
-                          shadowColor: AppColors.burgundy.withOpacity(0.4),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.share, size: 18),
-                            const SizedBox(width: 6),
-                            Text('مشاركة',
-                                style: _t(14,
-                                    weight: FontWeight.w800,
-                                    color: Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 1,
-                    child: SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _scanAgain,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.fieldBorder,
-                          foregroundColor: AppColors.textGrey,
-                          elevation: 0,
-                          padding: EdgeInsets.zero,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Text('مسح جديد',
-                            style: _t(11,
-                                weight: FontWeight.w800,
-                                color: AppColors.textGrey)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _detailRow({
-    required IconData icon,
-    required String label,
-    required Widget value,
-    Color iconColor = AppColors.burgundy,
-  }) {
+  Widget _buildCameraControlsRow() {
     return Row(
       children: [
-        Icon(icon, size: 18, color: iconColor),
-        const SizedBox(width: 8),
-        Text(label, style: _t(11.5, color: AppColors.textGrey)),
-        const Spacer(),
-        value,
+        Expanded(
+          child: _buildControlPillButton(
+            label: _isFlashOn ? 'إيقاف الفلاش' : 'تشغيل الفلاش',
+            icon: _isFlashOn
+                ? Icons.flashlight_off_rounded
+                : Icons.flashlight_on_rounded,
+            isActive: _isFlashOn,
+            onTap: _toggleFlash,
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: _buildControlPillButton(
+            label: 'تبديل الكاميرا',
+            icon: Icons.cameraswitch_rounded,
+            isActive: false,
+            onTap: _switchCamera,
+          ),
+        ),
       ],
     );
   }
 
-  // ------------------------------------------------------------ Failure
-  Widget _failureContent() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
-      decoration: _cardDecoration(),
-      child: Column(
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: const BoxDecoration(
-              color: _QC.dangerBg,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.error_outline,
-                color: _QC.danger, size: 30),
-          ),
-          const SizedBox(height: 12),
-          Text('لم يتم تسجيل الحضور',
-              style: _t(17, weight: FontWeight.w800, color: _QC.danger)),
-          const SizedBox(height: 4),
-          Text(
-            _errorMessage,
-            textAlign: TextAlign.center,
-            style: _t(11.5, color: AppColors.textGrey, height: 1.5),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: ElevatedButton(
-              onPressed: _scanAgain,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.burgundy,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+  Widget _buildControlPillButton({
+    required String label,
+    required IconData icon,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: isActive ? kPrimaryBurgundy : kCardSand,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: isActive ? Colors.white : kTextDark,
                 ),
               ),
-              child: Text('إعادة المحاولة',
-                  style: _t(13, weight: FontWeight.w800, color: Colors.white)),
+              const SizedBox(width: 8),
+              Icon(
+                icon,
+                size: 20,
+                color: isActive ? kAccentGold : kPrimaryBurgundy,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInstructionCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kCardSand.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.brown.withOpacity(0.08)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: const BoxDecoration(
+              color: kPrimaryBurgundy,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.info_outline_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'تعليمات التسجيل',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: kTextDark,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'يرجى التأكد من استقرار اليد أثناء المسح وتوافر إضاءة كافية. في حال تعذر المسح، يمكنك مراجعة خادم النظام لتسجيلك يدوياً.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.5,
+                    color: kTextMuted,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -840,100 +591,73 @@ class _QRPageState extends State<QRPage> with WidgetsBindingObserver {
     );
   }
 
-  // --------------------------------------------------------------- Help
-  Widget _buildHelpRow() {
-    return Column(
-      children: [
-        Text('تواجه صعوبة في مسح الرمز؟',
-            style: _t(11, color: AppColors.textGrey)),
-        const SizedBox(height: 6),
-        InkWell(
-          onTap: _onRequestHelp,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.support_agent,
-                    size: 18, color: AppColors.burgundy),
-                const SizedBox(width: 6),
-                Text('طلب المساعدة من خادم النظام بالقاعة',
-                    style: _t(11.5,
-                        weight: FontWeight.w800, color: AppColors.burgundy)),
-              ],
-            ),
-          ),
+  Widget _buildHelpButton() {
+    return TextButton.icon(
+      onPressed: _onHelpRequested,
+      style: TextButton.styleFrom(
+        foregroundColor: kPrimaryBurgundy,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      ),
+      icon: const Icon(Icons.help_rounded, size: 20, color: kPrimaryBurgundy),
+      label: const Text(
+        'طلب المساعدة من خادم النظام بالقاعة',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+          color: kPrimaryBurgundy,
         ),
-      ],
+      ),
     );
   }
-
-  BoxDecoration _cardDecoration() => BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(22),
-    border: Border.all(color: AppColors.fieldBorder.withOpacity(0.7)),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withOpacity(0.05),
-        blurRadius: 14,
-        offset: const Offset(0, 5),
-      ),
-    ],
-  );
 }
 
-/* ========================================================================== */
-/*  Scanner frame corners                                                     */
-/* ========================================================================== */
-
-class _CornerPainter extends CustomPainter {
+class _GoldCornersPainter extends CustomPainter {
   final Color color;
-  const _CornerPainter({required this.color});
+  final double strokeWidth;
+  final double cornerLength;
+  final double radius;
+
+  _GoldCornersPainter({
+    required this.color,
+    required this.strokeWidth,
+    required this.cornerLength,
+    required this.radius,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
+    final Paint paint = Paint()
       ..color = color
+      ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
       ..strokeCap = StrokeCap.round;
 
-    const len = 30.0;
-    const r = 16.0;
-    final w = size.width;
-    final h = size.height;
+    final double w = size.width;
+    final double h = size.height;
+    final double r = radius;
+    final double len = cornerLength;
 
-    final path = Path()
-    // top-left
+    final Path path = Path()
       ..moveTo(0, len)
       ..lineTo(0, r)
-      ..arcTo(const Rect.fromLTWH(0, 0, r * 2, r * 2), math.pi, math.pi / 2,
-          false)
+      ..arcToPoint(Offset(r, 0), radius: Radius.circular(r))
       ..lineTo(len, 0)
-    // top-right
       ..moveTo(w - len, 0)
       ..lineTo(w - r, 0)
-      ..arcTo(Rect.fromLTWH(w - r * 2, 0, r * 2, r * 2), -math.pi / 2,
-          math.pi / 2, false)
+      ..arcToPoint(Offset(w, r), radius: Radius.circular(r))
       ..lineTo(w, len)
-    // bottom-right
-      ..moveTo(w, h - len)
-      ..lineTo(w, h - r)
-      ..arcTo(Rect.fromLTWH(w - r * 2, h - r * 2, r * 2, r * 2), 0,
-          math.pi / 2, false)
-      ..lineTo(w - len, h)
-    // bottom-left
-      ..moveTo(len, h)
-      ..lineTo(r, h)
-      ..arcTo(Rect.fromLTWH(0, h - r * 2, r * 2, r * 2), math.pi / 2,
-          math.pi / 2, false)
-      ..lineTo(0, h - len);
+      ..moveTo(0, h - len)
+      ..lineTo(0, h - r)
+      ..arcToPoint(Offset(r, h), radius: Radius.circular(r), clockwise: false)
+      ..lineTo(len, h)
+      ..moveTo(w - len, h)
+      ..lineTo(w - r, h)
+      ..arcToPoint(Offset(w, h - r), radius: Radius.circular(r), clockwise: false)
+      ..lineTo(w, h - len);
 
     canvas.drawPath(path, paint);
   }
 
   @override
-  bool shouldRepaint(covariant _CornerPainter oldDelegate) =>
-      oldDelegate.color != color;
+  bool shouldRepaint(covariant _GoldCornersPainter oldDelegate) => false;
 }
