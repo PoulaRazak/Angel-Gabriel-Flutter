@@ -1,9 +1,8 @@
-import 'package:angel_gabriel/features/auth/view/login/view.dart';
-import 'package:angel_gabriel/features/home-bottombar/view.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../../../../core/resources/app-colors.dart';
-
+import '../../../../core/cache/cache_helper.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../home-bottombar/view.dart';
+import '../login/view.dart';
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
@@ -15,533 +14,652 @@ class SignUpPage extends StatefulWidget {
 class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
 
-  final _nameController = TextEditingController();
+  final _fullNameController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _universityController = TextEditingController();
+  final _collegeController = TextEditingController();
   final _confessorController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _confirmController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
-  String? _studyYear;
+  String? _selectedAcademicYear;
+  int _selectedGender = 1;
   bool _obscurePassword = true;
-  bool _obscureConfirm = true;
-  bool _acceptNotifications = true;
+  bool _obscureConfirmPassword = true;
+  bool _receiveNotifications = false;
+  bool _isLoading = false;
 
-  static const _studyYears = [
-    'السنة الأولى',
-    'السنة الثانية',
-    'السنة الثالثة',
-    'السنة الرابعة',
-    'السنة الخامسة',
-    'السنة السادسة',
-    'خريج',
+  static const Color _bgColor = Color(0xFFFAF5F0);
+  static const Color _cardColor = Colors.white;
+  static const Color _primaryMaroon = Color(0xFF7B1E2B);
+  static const Color _goldAccent = Color(0xFFD4A843);
+  static const Color _textDark = Color(0xFF2C1810);
+  static const Color _textSubtle = Color(0xFF8C7B72);
+  static const Color _fieldBg = Color(0xFFF3ECE6);
+  static const Color _borderColor = Color(0xFFE0D5CC);
+
+  final List<String> _academicYears = [
+    'الفرقة الأولى',
+    'الفرقة الثانية',
+    'الفرقة الثالثة',
+    'الفرقة الرابعة',
+    'الفرقة الخامسة',
+    'الفرقة السادسة',
+    'دراسات عليا / خريج',
   ];
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _fullNameController.dispose();
     _phoneController.dispose();
-    _universityController.dispose();
+    _collegeController.dispose();
     _confessorController.dispose();
     _passwordController.dispose();
-    _confirmController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  // ------------------------------------------------------------ Logic
-  void _submit() {
-    if (_formKey.currentState?.validate() ?? false) {
-      // TODO: add your register logic / API call
+  String _normalizeNumbers(String input) {
+    const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    const english = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    String result = input;
+    for (int i = 0; i < arabic.length; i++) {
+      result = result.replaceAll(arabic[i], english[i]);
+    }
+    return result.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final cleanPhone = _normalizeNumbers(_phoneController.text);
+      final response = await ApiClient.post(
+        '/auth/register',
+        body: {
+          'fullName': _fullNameController.text.trim(),
+          'phone': cleanPhone,
+          'gender': _selectedGender,
+          'university': _collegeController.text.trim(),
+          'studyYear': _selectedAcademicYear ?? 'الفرقة الأولى',
+          'confessor': _confessorController.text.trim(),
+          'password': _passwordController.text.trim(),
+          'acceptNotifications': _receiveNotifications,
+        },
+      );
+
+      if (!mounted) return;
+      final String message = (response['message'] ?? 'تم إرسال طلب العضوية بنجاح').toString();
+      final bool requiresApproval = response['requiresApproval'] == true;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message, textAlign: TextAlign.right),
+          backgroundColor: _primaryMaroon,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+
+      if (!requiresApproval && response['token'] != null) {
+        final user = response['user'] as Map<String, dynamic>? ?? <String, dynamic>{};
+        await CacheHelper.saveSession(
+          token: response['token'].toString(),
+          userId: (user['id'] ?? '').toString(),
+          fullName: (user['fullName'] ?? _fullNameController.text.trim()).toString(),
+          phone: (user['phone'] ?? _phoneController.text.trim()).toString(),
+        );
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const Bottombar()),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString(), textAlign: TextAlign.right),
+          backgroundColor: Colors.red.shade700,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  /// Returns 0..4
-  int _passwordStrength(String p) {
-    if (p.isEmpty) return 0;
-    int score = 0;
-    if (p.length >= 6) score++;
-    if (p.length >= 8) score++;
-    if (RegExp(r'[A-Za-z]').hasMatch(p) && RegExp(r'\d').hasMatch(p)) score++;
-    if (RegExp(r'[^A-Za-z0-9]').hasMatch(p) ||
-        (RegExp(r'[a-z]').hasMatch(p) && RegExp(r'[A-Z]').hasMatch(p))) {
-      score++;
-    }
-    return score.clamp(0, 4);
-  }
-
-  String _strengthLabel(int s) {
-    switch (s) {
-      case 1:
-        return 'ضعيفة';
-      case 2:
-        return 'مقبولة';
-      case 3:
-        return 'جيدة';
-      case 4:
-        return 'قوية';
-      default:
-        return '';
-    }
-  }
-
-  // ------------------------------------------------------------- Build
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        body: Container(
-          width: double.infinity,
-          height: double.infinity,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFFFFF8F2), Color(0xFFFDEFEA)],
-            ),
-          ),
-          child: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildTopBar(),
-                    const SizedBox(height: 18),
-                    Center(
-                      child: Text(
-                        'إنشاء حساب جديد',
-                        style: GoogleFonts.tajawal(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.burgundy,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    _buildBasicInfo(),
-                    const SizedBox(height: 16),
-                    _buildStudyCard(),
-                    const SizedBox(height: 16),
-                    _buildConfessor(),
-                    const SizedBox(height: 16),
-                    _buildPasswordCard(),
-                    // const SizedBox(height: 14),
-                    // _buildNotificationsCard(),
-                    const SizedBox(height: 16),
-                    _buildSubmitButton(),
-                    const SizedBox(height: 16),
-                    _buildLoginLink(),
-                    const SizedBox(height: 18),
-                    _buildFooter(),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ----------------------------------------------------------- Top bar
-  Widget _buildTopBar() {
-    return Row(
-      children: [
-        // Back button (right side in RTL)
-
-
-        Text(
-          'اجتماع الملاك غبريال',
-          style: GoogleFonts.tajawal(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textDark,
-          ),
-        ),
-        const Spacer(),
-        InkWell(
-          onTap: (){
-            Navigator.of(context).push(
-                MaterialPageRoute(builder: (context){
-                  return LoginPage();
-                })
-            );
-          },
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.fieldBorder),
-            ),
-            child: Icon(
-              Icons.arrow_forward,
-              color: AppColors.burgundy,
-              size: 20,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // -------------------------------------------------- Name + phone
-  Widget _buildBasicInfo() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _label('الاسم بالكامل (رباعي)', required: true),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: _nameController,
-          textInputAction: TextInputAction.next,
-          style: _inputStyle(),
-          decoration: _decoration(
-            hint: 'مثال: بيتر ميخائيل حنا يوسف',
-            icon: Icons.person_outline,
-            fill: Colors.white,
-          ),
-          validator: (v) {
-            if (v == null || v.trim().isEmpty) return 'من فضلك أدخل الاسم';
-            if (v.trim().split(RegExp(r'\s+')).length < 4) {
-              return 'من فضلك أدخل الاسم رباعي';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        _label(
-          'رقم الهاتف والواتساب',
-          required: true,
-          trailing: 'مهم للتواصل والتنبيهات',
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: _phoneController,
-          keyboardType: TextInputType.phone,
-          textInputAction: TextInputAction.next,
-          textDirection: TextDirection.ltr,
-          textAlign: TextAlign.left,
-          style: _inputStyle(),
-          decoration: _decoration(
-            hint: '0123 456 7890',
-            icon: Icons.smartphone_outlined,
-            fill: Colors.white,
-          ),
-          validator: (v) {
-            final digits = (v ?? '').replaceAll(RegExp(r'\s'), '');
-            if (digits.isEmpty) return 'من فضلك أدخل رقم الهاتف';
-            if (digits.length < 10) return 'رقم الهاتف غير صحيح';
-            return null;
-          },
-        ),
-      ],
-    );
-  }
-
-  // ------------------------------------------------------- Study card
-  Widget _buildStudyCard() {
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionHeader(icon: Icons.school, title: 'المرحلة والدراسة الجامعية'),
-          const SizedBox(height: 16),
-          _label('الجامعة والكلية', required: true),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: _universityController,
-            textInputAction: TextInputAction.next,
-            style: _inputStyle(),
-            decoration: _decoration(
-              hint: 'مثال: جامعة القاهرة - كلية الهندسة',
-              icon: Icons.account_balance_outlined, fill:AppColors.fieldFill,
-            ),
-            validator: (v) => (v == null || v.trim().isEmpty)
-                ? 'من فضلك أدخل الجامعة والكلية'
-                : null,
-          ),
-          const SizedBox(height: 14),
-          _label('الفرقة / السنة الدراسية', required: true),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            value: _studyYear,
-            isExpanded: true,
-            icon: Icon(Icons.keyboard_arrow_down, color: AppColors.hint),
-            borderRadius: BorderRadius.circular(14),
-            dropdownColor: Colors.white,
-            style: _inputStyle(),
-            decoration: _decoration(
-              hint: 'اختر السنة الدراسية',
-              icon: Icons.calendar_today_outlined, fill: AppColors.fieldFill,
-            ),
-            items: _studyYears
-                .map((y) => DropdownMenuItem(
-              value: y,
-              child: Text(y, style: _inputStyle()),
-            ))
-                .toList(),
-            onChanged: (v) => setState(() => _studyYear = v),
-            validator: (v) => v == null ? 'من فضلك اختر السنة الدراسية' : null,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --------------------------------------------------- Father of confession
-  Widget _buildConfessor() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.church_outlined,
-                color: AppColors.burgundy, size: 20),
-            const SizedBox(width: 6),
-            Text(
-              'أب الاعتراف',
-              style: GoogleFonts.tajawal(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textDark,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: _confessorController,
-          textInputAction: TextInputAction.next,
-          style: _inputStyle(),
-          decoration: _decoration(
-            hint: 'مثال: أبونا غبريال',
-            icon: Icons.menu_book_outlined,
-            fill: Colors.white,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ---------------------------------------------------- Password card
-  Widget _buildPasswordCard() {
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionHeader(
-            icon: Icons.lock_person_outlined,
-            title: 'كلمة المرور وحماية الحساب',
-            trailing: '٦ أحرف كحد أدنى',
-          ),
-          const SizedBox(height: 16),
-          _label('كلمة المرور', required: true),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: _passwordController,
-            obscureText: _obscurePassword,
-            textInputAction: TextInputAction.next,
-            textDirection: TextDirection.ltr,
-            textAlign: TextAlign.left,
-            style: _inputStyle(),
-            onChanged: (_) => setState(() {}),
-            decoration: _decoration(
-              hint: '••••••••',
-              icon: Icons.vpn_key_outlined,
-              suffix: _eyeButton(
-                obscure: _obscurePassword,
-                onTap: () =>
-                    setState(() => _obscurePassword = !_obscurePassword),
-              ), fill: AppColors.fieldFill,
-            ),
-            validator: (v) {
-              if (v == null || v.isEmpty) return 'من فضلك أدخل كلمة المرور';
-              if (v.length < 6) return 'كلمة المرور يجب ألا تقل عن ٦ أحرف';
-              return null;
-            },
-          ),
-          const SizedBox(height: 12),
-          _buildStrengthMeter(),
-          const SizedBox(height: 14),
-          _label('تأكيد كلمة المرور', required: true),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: _confirmController,
-            obscureText: _obscureConfirm,
-            textInputAction: TextInputAction.done,
-            textDirection: TextDirection.ltr,
-            textAlign: TextAlign.left,
-            style: _inputStyle(),
-            decoration: _decoration(
-              hint: '••••••••',
-              icon: Icons.check_circle_outline,
-              suffix: _eyeButton(
-                obscure: _obscureConfirm,
-                onTap: () => setState(() => _obscureConfirm = !_obscureConfirm),
-              ), fill: AppColors.fieldFill,
-            ),
-            validator: (v) {
-              if (v == null || v.isEmpty) return 'من فضلك أكد كلمة المرور';
-              if (v != _passwordController.text) {
-                return 'كلمتا المرور غير متطابقتين';
-              }
-              return null;
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStrengthMeter() {
-    final strength = _passwordStrength(_passwordController.text);
-    return Column(
-      children: [
-        Row(
-          children: [
-            Text(
-              'قوة كلمة المرور:',
-              style: GoogleFonts.tajawal(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textDark,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              _strengthLabel(strength),
-              style: GoogleFonts.tajawal(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: AppColors.gold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: List.generate(4, (i) {
-            final filled = i < strength;
-            return Expanded(
-              child: Container(
-                height: 5,
-                margin: EdgeInsetsDirectional.only(end: i == 3 ? 0 : 6),
-                decoration: BoxDecoration(
-                  color: filled ? AppColors.gold : AppColors.fieldBorder,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            );
-          }),
-        ),
-      ],
-    );
-  }
-
-  // -------------------------------------------------- Notifications card
-  Widget _buildNotificationsCard() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.fieldBorder),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 24,
-            height: 24,
-            child: Checkbox(
-              value: _acceptNotifications,
-              activeColor: AppColors.burgundy,
-              side: BorderSide(color: AppColors.fieldBorder, width: 1.5),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
-              ),
-              onChanged: (v) =>
-                  setState(() => _acceptNotifications = v ?? false),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
+        backgroundColor: _bgColor,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'أوافق على استلام تنبيهات ومواعيد الاجتماعات والأنشطة الروحية',
-                  style: GoogleFonts.tajawal(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'رسائل الخدمة المباشرة عبر تطبيق الواتساب',
-                  style: GoogleFonts.tajawal(
-                    fontSize: 10.5,
-                    color: AppColors.textGrey,
-                    height: 1.5,
-                  ),
-                ),
+                _buildHeader(),
+                const SizedBox(height: 24),
+                _buildFormCard(),
+                const SizedBox(height: 24),
+                _buildFooter(),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Column(
+      children: [
+        Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _primaryMaroon,
+            border: Border.all(color: _goldAccent, width: 2.5),
+            boxShadow: [
+              BoxShadow(
+                color: _primaryMaroon.withOpacity(0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: const Center(
+            child: Icon(Icons.church_rounded, color: _goldAccent, size: 34),
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'أُسْرَةُ المَلَاكِ غَبْرِيَالَ',
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            color: _primaryMaroon,
+            height: 1.3,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'كنيسة السيدة العذراء مريم بالزيتون',
+          style: TextStyle(
+            fontSize: 13.5,
+            color: _textSubtle,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFormCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'إنشاء حساب جديد',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: _textDark,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'انضم إلى عائلتنا الروحية وسجل بياناتك',
+              style: TextStyle(fontSize: 13, color: _textSubtle),
+            ),
+            const SizedBox(height: 24),
+            _buildLabel('الاسم الثلاثي'),
+            const SizedBox(height: 8),
+            _buildTextField(
+              controller: _fullNameController,
+              hint: 'ادخل اسمك بالكامل',
+              prefixIcon: Icons.person_outline_rounded,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'الرجاء إدخال الاسم الثلاثي';
+                }
+                final parts = v.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+                if (parts.length < 3) {
+                  return 'يرجى إدخال الاسم الثلاثي كاملاً';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+            _buildLabel('النوع'),
+            const SizedBox(height: 8),
+            _buildGenderSelector(),
+            const SizedBox(height: 18),
+            _buildLabel('رقم الموبايل'),
+            const SizedBox(height: 8),
+            _buildTextField(
+              controller: _phoneController,
+              hint: '01xxxxxxxxx',
+              prefixIcon: Icons.smartphone_rounded,
+              keyboardType: TextInputType.phone,
+              textDirection: TextDirection.ltr,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'الرجاء إدخال رقم الموبايل';
+                }
+                final cleaned = _normalizeNumbers(v);
+                if (cleaned.length < 11 || !cleaned.startsWith('01')) {
+                  return 'يرجى إدخال رقم موبايل مصري صحيح (11 رقم)';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+            _buildLabel('الكلية والجامعة'),
+            const SizedBox(height: 8),
+            _buildTextField(
+              controller: _collegeController,
+              hint: 'مثال: هندسة عين شمس',
+              prefixIcon: Icons.school_outlined,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'الرجاء إدخال الكلية والجامعة';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+            _buildLabel('الفرقة الدراسية'),
+            const SizedBox(height: 8),
+            _buildDropdownField(),
+            const SizedBox(height: 18),
+            _buildLabel('أب الاعتراف'),
+            const SizedBox(height: 8),
+            _buildTextField(
+              controller: _confessorController,
+              hint: 'اسم أب الاعتراف والكنيسة',
+              prefixIcon: Icons.person_pin_outlined,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'الرجاء إدخال اسم أب الاعتراف';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+            _buildLabel('كلمة المرور'),
+            const SizedBox(height: 8),
+            _buildTextField(
+              controller: _passwordController,
+              hint: '••••••••',
+              prefixIcon: Icons.lock_outline_rounded,
+              obscureText: _obscurePassword,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: _textSubtle,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() => _obscurePassword = !_obscurePassword);
+                },
+              ),
+              validator: (v) {
+                if (v == null || v.isEmpty) {
+                  return 'الرجاء إدخال كلمة المرور';
+                }
+                if (v.length < 6) {
+                  return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+            _buildLabel('تأكيد كلمة المرور'),
+            const SizedBox(height: 8),
+            _buildTextField(
+              controller: _confirmPasswordController,
+              hint: '••••••••',
+              prefixIcon: Icons.lock_reset_rounded,
+              obscureText: _obscureConfirmPassword,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureConfirmPassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: _textSubtle,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword,
+                  );
+                },
+              ),
+              validator: (v) {
+                if (v == null || v.isEmpty) {
+                  return 'الرجاء تأكيد كلمة المرور';
+                }
+                if (v != _passwordController.text) {
+                  return 'كلمتا المرور غير متطابقتين';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildNotificationRow(),
+            const SizedBox(height: 22),
+            _buildSubmitButton(),
+            const SizedBox(height: 18),
+            _buildLoginLink(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLabel(String text) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 13.5,
+        fontWeight: FontWeight.w700,
+        color: _textDark,
+      ),
+    );
+  }
+
+  Widget _buildGenderSelector() {
+    return Row(
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: () => setState(() => _selectedGender = 1),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              height: 48,
+              decoration: BoxDecoration(
+                color: _selectedGender == 1 ? _primaryMaroon : _fieldBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _selectedGender == 1 ? _primaryMaroon : _borderColor,
+                  width: 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.male_rounded,
+                    color: _selectedGender == 1 ? Colors.white : _textSubtle,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'ذكر',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: _selectedGender == 1 ? Colors.white : _textDark,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: InkWell(
+            onTap: () => setState(() => _selectedGender = 2),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              height: 48,
+              decoration: BoxDecoration(
+                color: _selectedGender == 2 ? _primaryMaroon : _fieldBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _selectedGender == 2 ? _primaryMaroon : _borderColor,
+                  width: 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.female_rounded,
+                    color: _selectedGender == 2 ? Colors.white : _textSubtle,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'أنثى',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: _selectedGender == 2 ? Colors.white : _textDark,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData prefixIcon,
+    TextInputType keyboardType = TextInputType.text,
+    TextDirection? textDirection,
+    bool obscureText = false,
+    Widget? suffixIcon,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      textDirection: textDirection,
+      obscureText: obscureText,
+      validator: validator,
+      style: const TextStyle(fontSize: 14, color: _textDark),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(fontSize: 13, color: _textSubtle),
+        filled: true,
+        fillColor: _fieldBg,
+        prefixIcon: Icon(prefixIcon, color: _textSubtle, size: 20),
+        suffixIcon: suffixIcon,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: _borderColor, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: _primaryMaroon, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDropdownField() {
+    return DropdownButtonFormField<String>(
+      value: _selectedAcademicYear,
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: _fieldBg,
+        prefixIcon: const Icon(
+          Icons.calendar_today_outlined,
+          color: _textSubtle,
+          size: 20,
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: _borderColor, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: _primaryMaroon, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1),
+        ),
+      ),
+      hint: const Text(
+        'اختر الفرقة الدراسية',
+        style: TextStyle(fontSize: 13, color: _textSubtle),
+      ),
+      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: _textSubtle),
+      isExpanded: true,
+      dropdownColor: _cardColor,
+      borderRadius: BorderRadius.circular(12),
+      items: _academicYears.map((year) {
+        return DropdownMenuItem<String>(
+          value: year,
+          child: Text(
+            year,
+            style: const TextStyle(fontSize: 14, color: _textDark),
+          ),
+        );
+      }).toList(),
+      onChanged: (value) {
+        setState(() => _selectedAcademicYear = value);
+      },
+      validator: (v) {
+        if (v == null || v.isEmpty) {
+          return 'الرجاء اختيار الفرقة الدراسية';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildNotificationRow() {
+    return GestureDetector(
+      onTap: () {
+        setState(() => _receiveNotifications = !_receiveNotifications);
+      },
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _receiveNotifications ? _primaryMaroon : Colors.transparent,
+              border: Border.all(
+                color: _receiveNotifications ? _primaryMaroon : _textSubtle,
+                width: 1.8,
+              ),
+            ),
+            child: _receiveNotifications
+                ? const Icon(Icons.check, color: Colors.white, size: 14)
+                : null,
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'أود استلام تنبيهات بمواعيد الاجتماعات والأنشطة الروحية للأسرة',
+              style: TextStyle(fontSize: 12.5, color: _textSubtle, height: 1.4),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // ----------------------------------------------------- Submit button
   Widget _buildSubmitButton() {
     return SizedBox(
       width: double.infinity,
-      height: 54,
+      height: 52,
       child: ElevatedButton(
-        onPressed: _submit,
+        onPressed: _isLoading ? null : _submit,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.burgundy,
+          backgroundColor: _primaryMaroon,
           foregroundColor: Colors.white,
           elevation: 4,
-          shadowColor: AppColors.burgundy.withOpacity(0.4),
+          shadowColor: _primaryMaroon.withOpacity(0.35),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
           ),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.person_add_alt_1, size: 20),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap:
-              (){
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context){
-                    return Bottombar();
-                  })
-                );
-              },
-              child: Text(
-                'تسجيل حساب جديد',
-                style: GoogleFonts.tajawal(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
+        child: _isLoading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
                   color: Colors.white,
+                  strokeWidth: 2.5,
                 ),
+              )
+            : const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'تسجيل حساب جديد',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  SizedBox(width: 8),
+                  Icon(Icons.person_add_alt_1_rounded, size: 20),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -549,31 +667,25 @@ class _SignUpPageState extends State<SignUpPage> {
   Widget _buildLoginLink() {
     return Center(
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            'لديك حساب بالفعل ؟',
-            style: GoogleFonts.tajawal(
-              fontSize: 12,
-              color: AppColors.textDark,
-            ),
+          const Text(
+            'لديك حساب بالفعل؟ ',
+            style: TextStyle(fontSize: 13, color: _textSubtle),
           ),
-          const SizedBox(width: 4),
           GestureDetector(
-            onTap:
-                () {
-              Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context){
-                    return LoginPage();
-                  })
+            onTap: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginPage()),
               );
             },
-            child: Text(
+            child: const Text(
               'تسجيل الدخول',
-              style: GoogleFonts.tajawal(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: AppColors.burgundy,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: _primaryMaroon,
               ),
             ),
           ),
@@ -583,174 +695,32 @@ class _SignUpPageState extends State<SignUpPage> {
   }
 
   Widget _buildFooter() {
-    return Center(
-      child: Column(
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.favorite, color: AppColors.gold, size: 15),
-              const SizedBox(width: 6),
-              Text(
-                '• اجتماع الملاك غبريال الجامعي',
-                style: GoogleFonts.tajawal(
-                  fontSize: 10.5,
-                  color: AppColors.gold,
-                ),
+    return Column(
+      children: [
+        const Text(
+          '"هَا أَنَا مُرْسِلٌ مَلاَكِي أَمَامَ وَجْهِكَ"',
+          style: TextStyle(
+            fontSize: 12.5,
+            color: _textSubtle,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(3, (i) {
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: i == 1 ? 8 : 5,
+              height: i == 1 ? 8 : 5,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i == 1 ? _goldAccent : _goldAccent.withOpacity(0.4),
               ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'اجتماع جامعيين © 2026',
-            style: GoogleFonts.tajawal(
-              fontSize: 10,
-              color: AppColors.textGrey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ------------------------------------------------------------ Helpers
-  TextStyle _inputStyle() => GoogleFonts.tajawal(
-    fontSize: 13.5,
-    color: AppColors.textDark,
-  );
-
-  Widget _label(String text, {bool required = false, String? trailing}) {
-    return Row(
-      children: [
-        RichText(
-          text: TextSpan(
-            text: text,
-            style: GoogleFonts.tajawal(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textDark,
-            ),
-            children: [
-              if (required)
-                TextSpan(
-                  text: ' *',
-                  style: GoogleFonts.tajawal(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.burgundy,
-                  ),
-                ),
-            ],
-          ),
+            );
+          }),
         ),
-        if (trailing != null) ...[
-          const Spacer(),
-          Text(
-            trailing,
-            style: GoogleFonts.tajawal(
-              fontSize: 10,
-              color: AppColors.textGrey,
-            ),
-          ),
-        ],
       ],
-    );
-  }
-
-  Widget _sectionHeader({
-    required IconData icon,
-    required String title,
-    String? trailing,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, color: AppColors.burgundy, size: 22),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: GoogleFonts.tajawal(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textDark,
-          ),
-        ),
-        if (trailing != null) ...[
-          const Spacer(),
-          Text(
-            trailing,
-            style: GoogleFonts.tajawal(
-              fontSize: 10,
-              color: AppColors.textGrey,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _eyeButton({required bool obscure, required VoidCallback onTap}) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Icon(
-        obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-        color: AppColors.hint,
-        size: 21,
-      ),
-    );
-  }
-
-  InputDecoration _decoration({
-    required String hint,
-    required IconData icon,
-    Widget? suffix, required Color fill,
-    // Color fill = AppColors.fieldFill,
-  }) {
-    OutlineInputBorder border(Color c) => OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: BorderSide(color: c, width: 1.2),
-    );
-
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: GoogleFonts.tajawal(fontSize: 13, color: AppColors.hint),
-      errorStyle: GoogleFonts.tajawal(fontSize: 11),
-      filled: true,
-      fillColor: fill,
-      prefixIcon: Icon(icon, color: AppColors.hint, size: 22),
-      suffixIcon: suffix,
-      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-      border: border(AppColors.fieldBorder),
-      enabledBorder: border(AppColors.fieldBorder),
-      focusedBorder: border(AppColors.burgundy),
-      errorBorder: border(Colors.red.shade300),
-      focusedErrorBorder: border(Colors.red.shade400),
-    );
-  }
-}
-
-/// White rounded card used for the grouped sections.
-class _Card extends StatelessWidget {
-  final Widget child;
-  const _Card({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.fieldBorder.withOpacity(0.7)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: child,
     );
   }
 }

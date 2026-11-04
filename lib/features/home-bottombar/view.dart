@@ -2,12 +2,8 @@ import 'package:angel_gabriel/features/home-bottombar/screens/attendance/view.da
 import 'package:angel_gabriel/features/home-bottombar/screens/home/view.dart';
 import 'package:angel_gabriel/features/home-bottombar/screens/notifications/view.dart';
 import 'package:angel_gabriel/features/home-bottombar/screens/profile/view.dart';
-import 'package:angel_gabriel/features/home-bottombar/screens/scanner/view.dart';
-import 'package:animated_bottom_navigation_bar/animated_bottom_navigation_bar.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../../core/resources/app-colors.dart';
-
+import 'package:flutter_svg/svg.dart';
 
 class Bottombar extends StatefulWidget {
   const Bottombar({super.key});
@@ -17,116 +13,114 @@ class Bottombar extends StatefulWidget {
 }
 
 class _BottombarState extends State<Bottombar> {
-  int currentIndex = 0;
-
-  // Tab pages only (the QR page is opened from the center button)
   final List<Widget> screens = const [
     HomeScreen(),
-    AttendancePage(),
+    AttendanceHistoryPage(),
     NotificationsPage(),
     ProfilePage(),
   ];
 
-  final List<IconData> icons = const [
-    Icons.home_rounded,
-    Icons.calendar_month_outlined,
-    Icons.notifications_none_rounded,
-    Icons.person_outline_rounded,
-  ];
-
-  final List<String> labels = const [
-    'الرئيسية',
-    'سجل الحضور',
-    'الإشعارات',
-    'حسابي',
-  ];
+  int currentIndex = 0;
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        extendBody: true,
-        body: IndexedStack(
-          index: currentIndex,
-          children: screens,
-        ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-        floatingActionButton: SizedBox(
-          width: 68,
-          height: 68,
-          child: FloatingActionButton(
-            elevation: 4,
-            shape: const CircleBorder(
-              side: BorderSide(color: Colors.white, width: 4),
-            ),
-            backgroundColor: AppColors.burgundy,
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const QRPage()),
-              );
-            },
-            child: const Icon(
-              Icons.qr_code_scanner_rounded,
-              color: Colors.white,
-              size: 32,
-            ),
+    return Scaffold(
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
           ),
-        ),
-        bottomNavigationBar: Stack(
-          alignment: Alignment.bottomCenter,
-          children: [
-            AnimatedBottomNavigationBar.builder(
-              itemCount: icons.length,
-              height: 70,
-              activeIndex: currentIndex,
-              gapLocation: GapLocation.center,
-              notchSmoothness: NotchSmoothness.defaultEdge,
-              leftCornerRadius: 24,
-              rightCornerRadius: 24,
-              backgroundColor: Colors.white,
-              shadow: BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 12,
-                offset: const Offset(0, -2),
-              ),
-              onTap: (index) => setState(() => currentIndex = index),
-              tabBuilder: (int index, bool isActive) {
-                final color = isActive ? AppColors.burgundy : AppColors.textGrey;
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icons[index], size: 26, color: color),
-                    const SizedBox(height: 4),
-                    Text(
-                      labels[index],
-                      style: GoogleFonts.tajawal(
-                        fontSize: 10,
-                        color: color,
-                        fontWeight:
-                        isActive ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-            // Label under the center QR button
-            Positioned(
-              bottom: 8,
-              child: Text(
-                'مسح QR',
-                style: GoogleFonts.tajawal(
-                  fontSize: 10,
-                  color: AppColors.textGrey,
-                  fontWeight: FontWeight.w500,
-                )
-              ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.25),
+              blurRadius: 10,
+              offset: const Offset(0, -1),
             ),
           ],
         ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+          child: BottomNavigationBar(
+            onTap: (value) {
+              setState(() {
+                currentIndex = value;
+              });
+            },
+            backgroundColor: const Color(0xffFFF8F6),
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: const Color(0xff7A182B),
+            unselectedItemColor: const Color(0xff554244),
+            selectedLabelStyle: const TextStyle(
+              color: Color(0xff7A182B),
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              color: Color(0xff554244),
+              fontWeight: FontWeight.w500,
+              fontSize: 11,
+            ),
+            currentIndex: currentIndex,
+            elevation: 0,
+            items: [
+              BottomNavigationBarItem(
+                icon: SvgPicture.asset(
+                  'assets/icons/home.svg',
+                  colorFilter: ColorFilter.mode(
+                    currentIndex == 0
+                        ? const Color(0xff7A182B)
+                        : const Color(0xff554244),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                label: 'الرئيسية',
+              ),
+              BottomNavigationBarItem(
+                icon: SvgPicture.asset(
+                  'assets/icons/attendece.svg',
+                  colorFilter: ColorFilter.mode(
+                    currentIndex == 1
+                        ? const Color(0xff7A182B)
+                        : const Color(0xff554244),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                label: 'الحضور',
+              ),
+              BottomNavigationBarItem(
+                icon: SvgPicture.asset(
+                  'assets/icons/notifications.svg',
+                  colorFilter: ColorFilter.mode(
+                    currentIndex == 2
+                        ? const Color(0xff7A182B)
+                        : const Color(0xff554244),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                label: 'الإشعارات',
+              ),
+              BottomNavigationBarItem(
+                icon: SvgPicture.asset(
+                  'assets/icons/profile.svg',
+                  colorFilter: ColorFilter.mode(
+                    currentIndex == 3
+                        ? const Color(0xff7A182B)
+                        : const Color(0xff554244),
+                    BlendMode.srcIn,
+                  ),
+                ),
+                label: 'حسابي',
+              ),
+            ],
+          ),
+        ),
       ),
+      backgroundColor: const Color(0xffFFF8F6),
+      body: screens[currentIndex],
     );
   }
 }

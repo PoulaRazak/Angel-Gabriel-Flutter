@@ -1,930 +1,816 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../../../../core/network/api_client.dart';
 
-// Your external colors file (class AppColors).
-import '../../../../core/resources/app-colors.dart';
+enum AttendanceStatus { present, absent, excused, none }
 
-/* ========================================================================== */
-/*  MODELS  (shape these to match your API)                                   */
-/* ========================================================================== */
-
-/// Used only to pick the icon of each meeting.
-/// Map your API's meeting type to one of these values.
-enum MeetingType { youth, bible, prayer, mass, other }
-
-class AttendanceEntry {
+class AttendanceRecordModel {
   final String id;
-  final String title; // e.g. "اجتماع الشباب الأسبوعي"
-  final String dateLabel; // e.g. "الجمعة 27 أكتوبر 2023"
-  final String timeLabel; // e.g. "07:15 PM"
-  final bool isPresent; // true = حاضر, false = غائب
-  final MeetingType type;
+  final String title;
+  final String sessionNumber;
+  final DateTime date;
+  final String? checkInTime;
+  final String? note;
+  final AttendanceStatus status;
 
-  const AttendanceEntry({
+  const AttendanceRecordModel({
     required this.id,
     required this.title,
-    required this.dateLabel,
-    required this.timeLabel,
-    required this.isPresent,
-    this.type = MeetingType.other,
-  });
-}
-
-class AttendanceMonthData {
-  final int totalCount; // إجمالي اللقاءات
-  final int presentCount; // مرات الحضور
-  final int absentCount; // مرات الغياب
-  final int percent; // نسبة الشهر 0..100
-  final List<AttendanceEntry> entries;
-
-  const AttendanceMonthData({
-    required this.totalCount,
-    required this.presentCount,
-    required this.absentCount,
-    required this.percent,
-    required this.entries,
+    required this.sessionNumber,
+    required this.date,
+    this.checkInTime,
+    this.note,
+    required this.status,
   });
 
-  /// PLACEHOLDER DATA so the UI is visible before the API is connected.
-  /// Delete this once your real API is ready.
-  factory AttendanceMonthData.placeholder() => const AttendanceMonthData(
-    totalCount: 8,
-    presentCount: 7,
-    absentCount: 1,
-    percent: 88,
-    entries: [
-      AttendanceEntry(
-        id: '1',
-        title: 'اجتماع الشباب الأسبوعي',
-        dateLabel: 'الجمعة 27 أكتوبر 2023',
-        timeLabel: '07:15 PM',
-        isPresent: true,
-        type: MeetingType.youth,
-      ),
-      AttendanceEntry(
-        id: '2',
-        title: 'درس كتاب المساء',
-        dateLabel: 'الثلاثاء 24 أكتوبر 2023',
-        timeLabel: '06:30 PM',
-        isPresent: true,
-        type: MeetingType.bible,
-      ),
-      AttendanceEntry(
-        id: '3',
-        title: 'اجتماع الصلاة والتسبيح',
-        dateLabel: 'الجمعة 20 أكتوبر 2023',
-        timeLabel: '07:00 PM',
-        isPresent: false,
-        type: MeetingType.prayer,
-      ),
-      AttendanceEntry(
-        id: '4',
-        title: 'درس كتاب المساء',
-        dateLabel: 'الثلاثاء 17 أكتوبر 2023',
-        timeLabel: '06:30 PM',
-        isPresent: true,
-        type: MeetingType.bible,
-      ),
-      AttendanceEntry(
-        id: '5',
-        title: 'قداس الجمعة الصباحي',
-        dateLabel: 'الجمعة 13 أكتوبر 2023',
-        timeLabel: '08:00 AM',
-        isPresent: true,
-        type: MeetingType.mass,
-      ),
-      AttendanceEntry(
-        id: '6',
-        title: 'درس كتاب المساء',
-        dateLabel: 'الثلاثاء 10 أكتوبر 2023',
-        timeLabel: '06:30 PM',
-        isPresent: true,
-        type: MeetingType.bible,
-      ),
-      AttendanceEntry(
-        id: '7',
-        title: 'اجتماع الشباب الأسبوعي',
-        dateLabel: 'الجمعة 6 أكتوبر 2023',
-        timeLabel: '07:15 PM',
-        isPresent: true,
-        type: MeetingType.youth,
-      ),
-      AttendanceEntry(
-        id: '8',
-        title: 'درس كتاب المساء',
-        dateLabel: 'الثلاثاء 3 أكتوبر 2023',
-        timeLabel: '06:30 PM',
-        isPresent: true,
-        type: MeetingType.bible,
-      ),
-    ],
-  );
-}
+  static AttendanceStatus _parseStatus(String raw) {
+    switch (raw) {
+      case 'present':
+        return AttendanceStatus.present;
+      case 'absent':
+        return AttendanceStatus.absent;
+      case 'excused':
+        return AttendanceStatus.excused;
+      default:
+        return AttendanceStatus.none;
+    }
+  }
 
-/* ========================================================================== */
-/*  API SERVICE  (empty on purpose: put your API logic here)                  */
-/* ========================================================================== */
-
-class AttendanceHistoryService {
-  /// Load the attendance summary and records for one month.
-  Future<AttendanceMonthData> fetchMonth(int year, int month) async {
-    // TODO: call your API here and parse the response, for example:
-    //
-    // final response = await dio.get(
-    //   '/attendance',
-    //   queryParameters: {'year': year, 'month': month},
-    // );
-    // return AttendanceMonthData.fromJson(response.data);
-
-    // Temporary placeholder so the screen renders. Remove when API is ready.
-    await Future.delayed(const Duration(milliseconds: 400));
-    return AttendanceMonthData.placeholder();
+  factory AttendanceRecordModel.fromJson(Map<String, dynamic> json) {
+    final String rawDate = (json['date'] ?? '2026-11-01').toString();
+    final DateTime parsedDate = DateTime.tryParse(rawDate) ?? DateTime.now();
+    return AttendanceRecordModel(
+      id: (json['id'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      sessionNumber: (json['sessionNumber'] ?? '#401').toString(),
+      date: parsedDate,
+      checkInTime: json['checkInTime']?.toString(),
+      note: json['note']?.toString(),
+      status: _parseStatus((json['status'] ?? 'none').toString()),
+    );
   }
 }
 
-/* ========================================================================== */
-/*  EXTRA COLORS (not in your AppColors) + TEXT HELPER                        */
-/* ========================================================================== */
+class AttendanceStatsModel {
+  final double attendanceRate;
+  final int presentDaysCount;
+  final int pointsCount;
 
-class _AC {
-  static const success = Color(0xFF2E9E5B);
-  static const successBg = Color(0xFFE3F6EA);
-  static const danger = Color(0xFFD64545);
-  static const dangerBg = Color(0xFFFCE8E8);
+  const AttendanceStatsModel({
+    required this.attendanceRate,
+    required this.presentDaysCount,
+    required this.pointsCount,
+  });
+
+  factory AttendanceStatsModel.fromJson(Map<String, dynamic> json) {
+    return AttendanceStatsModel(
+      attendanceRate: (json['attendanceRate'] as num?)?.toDouble() ?? 0.0,
+      presentDaysCount: (json['presentDaysCount'] as num?)?.toInt() ?? 0,
+      pointsCount: (json['pointsCount'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
-TextStyle _t(
-    double size, {
-      FontWeight weight = FontWeight.w500,
-      Color color = AppColors.textDark,
-      double? height,
-    }) =>
-    GoogleFonts.tajawal(
-      fontSize: size,
-      fontWeight: weight,
-      color: color,
-      height: height,
+class MonthAttendanceData {
+  final AttendanceStatsModel stats;
+  final Map<int, AttendanceStatus> dayStatuses;
+  final List<AttendanceRecordModel> records;
+
+  const MonthAttendanceData({
+    required this.stats,
+    required this.dayStatuses,
+    required this.records,
+  });
+
+  factory MonthAttendanceData.fromJson(Map<String, dynamic> json) {
+    final rawDayStatuses =
+        (json['dayStatuses'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+    final Map<int, AttendanceStatus> mappedDays = <int, AttendanceStatus>{};
+    rawDayStatuses.forEach((key, value) {
+      final int? dayInt = int.tryParse(key);
+      if (dayInt != null) {
+        mappedDays[dayInt] = AttendanceRecordModel._parseStatus(value.toString());
+      }
+    });
+
+    final rawRecords = (json['records'] as List<dynamic>?) ?? [];
+    return MonthAttendanceData(
+      stats: AttendanceStatsModel.fromJson(
+        (json['stats'] as Map<String, dynamic>?) ?? <String, dynamic>{},
+      ),
+      dayStatuses: mappedDays,
+      records: rawRecords
+          .map((e) => AttendanceRecordModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
+  }
+}
 
-const _arabicMonths = [
-  'يناير',
-  'فبراير',
-  'مارس',
-  'أبريل',
-  'مايو',
-  'يونيو',
-  'يوليو',
-  'أغسطس',
-  'سبتمبر',
-  'أكتوبر',
-  'نوفمبر',
-  'ديسمبر',
-];
+class AttendanceHistoryService {
+  Future<MonthAttendanceData> fetchMonthData(int year, int month) async {
+    final json = await ApiClient.get(
+      '/attendance',
+      queryParameters: {
+        'year': year.toString(),
+        'month': month.toString(),
+      },
+    );
+    return MonthAttendanceData.fromJson(json);
+  }
+}
 
-String _monthLabel(DateTime d) => '${_arabicMonths[d.month - 1]} ${d.year}';
-
-enum _Filter { all, present, absent }
-
-/* ========================================================================== */
-/*  ATTENDANCE PAGE                                                           */
-/*  Returns only the page content (no Scaffold), so you can place it inside   */
-/*  your own Scaffold / tab view that already has the bottom bar.             */
-/* ========================================================================== */
-
-class AttendancePage extends StatefulWidget {
-  const AttendancePage({super.key});
+class AttendanceHistoryPage extends StatefulWidget {
+  const AttendanceHistoryPage({super.key});
 
   @override
-  State<AttendancePage> createState() => _AttendancePageState();
+  State<AttendanceHistoryPage> createState() => _AttendanceHistoryPageState();
 }
 
-class _AttendancePageState extends State<AttendancePage> {
-  final _service = AttendanceHistoryService();
+class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
+  static const Color primaryMaroon = Color(0xFF7A1C24);
+  static const Color bgCream = Color(0xFFFAF6F0);
+  static const Color cardSand = Color(0xFFF3ECE4);
+  static const Color accentGold = Color(0xFFD69E2E);
+  static const Color presentGreen = Color(0xFF2E6F40);
+  static const Color absentRed = Color(0xFFC53030);
+  static const Color textDark = Color(0xFF2D2320);
+  static const Color textMuted = Color(0xFF7D6E68);
 
-  late DateTime _selectedMonth;
-  _Filter _filter = _Filter.all;
+  final AttendanceHistoryService _service = AttendanceHistoryService();
 
-  AttendanceMonthData? _data;
-  bool _loading = true;
-  String? _error;
+  late DateTime _currentMonth;
+  late int _selectedDay;
+  bool _isLoading = true;
+  MonthAttendanceData? _monthData;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
-    _selectedMonth = DateTime(now.year, now.month);
-    _loadMonth();
+    _currentMonth = DateTime(now.year, now.month);
+    _selectedDay = now.day;
+    _loadMonthData();
   }
 
-  // ------------------------------------------------------------ API calls
-  Future<void> _loadMonth() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadMonthData() async {
+    setState(() => _isLoading = true);
     try {
-      final data = await _service
-          .fetchMonth(_selectedMonth.year, _selectedMonth.month);
-      if (!mounted) return;
-      setState(() {
-        _data = data;
-        _loading = false;
-      });
+      final data = await _service.fetchMonthData(
+        _currentMonth.year,
+        _currentMonth.month,
+      );
+      if (mounted) {
+        setState(() {
+          _monthData = data;
+          _isLoading = false;
+        });
+      }
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'تعذر تحميل السجل، حاول مرة أخرى';
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  // -------------------------------------------------------------- Actions
-  Future<void> _pickMonth() async {
-    final now = DateTime.now();
-    // Last 12 months, newest first.
-    final months = List.generate(12, (i) => DateTime(now.year, now.month - i));
-
-    final picked = await showModalBottomSheet<DateTime>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.fieldBorder,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text('اختر الشهر',
-                  style: _t(16, weight: FontWeight.w800, color: AppColors.burgundy)),
-              const SizedBox(height: 8),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: months.map((m) {
-                    final selected = m.year == _selectedMonth.year &&
-                        m.month == _selectedMonth.month;
-                    return ListTile(
-                      onTap: () => Navigator.pop(ctx, m),
-                      title: Text(
-                        _monthLabel(m),
-                        style: _t(14,
-                            weight:
-                            selected ? FontWeight.w800 : FontWeight.w500,
-                            color: selected
-                                ? AppColors.burgundy
-                                : AppColors.textDark),
-                      ),
-                      trailing: selected
-                          ? const Icon(Icons.check_circle,
-                          color: AppColors.burgundy)
-                          : null,
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (picked == null) return;
-    if (picked.year == _selectedMonth.year &&
-        picked.month == _selectedMonth.month) {
-      return;
-    }
+  void _changeMonth(int offset) {
     setState(() {
-      _selectedMonth = picked;
-      _filter = _Filter.all;
+      _currentMonth = DateTime(
+        _currentMonth.year,
+        _currentMonth.month + offset,
+      );
+      _selectedDay = 1;
     });
-    _loadMonth();
+    _loadMonthData();
   }
 
-  void _onEntryTap(AttendanceEntry entry) {
-    // TODO: (optional) open the details of this attendance record.
+  String _getArabicMonthName(int month) {
+    const months = [
+      'يناير',
+      'فبراير',
+      'مارس',
+      'أبريل',
+      'مايو',
+      'يونيو',
+      'يوليو',
+      'أغسطس',
+      'سبتمبر',
+      'أكتوبر',
+      'نوفمبر',
+      'ديسمبر',
+    ];
+    return months[month - 1];
   }
 
-  // ---------------------------------------------------------------- Build
+  String _toArabicNumbers(String input) {
+    const english = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    for (int i = 0; i < english.length; i++) {
+      input = input.replaceAll(english[i], arabic[i]);
+    }
+    return input;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: double.infinity,
-          height: double.infinity,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFFFFF8F2), Color(0xFFFDEFEA)],
-            ),
-          ),
-          child: SafeArea(
-            child: RefreshIndicator(
-              color: AppColors.burgundy,
-              onRefresh: _loadMonth,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
-                children: [
-                  _buildTopBar(),
-                  const SizedBox(height: 16),
-                  Text('سجل الحضور والغياب',
-                      style: _t(23,
-                          weight: FontWeight.w800, color: AppColors.burgundy)),
-                  const SizedBox(height: 14),
-                  ..._buildContent(),
-                ],
+      child: Scaffold(
+        backgroundColor: bgCream,
+        body: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: primaryMaroon),
+              )
+            : RefreshIndicator(
+                color: primaryMaroon,
+                onRefresh: _loadMonthData,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 30),
+                      _buildStatsHeader(),
+                      const SizedBox(height: 24),
+                      _buildCalendarCard(),
+                      const SizedBox(height: 28),
+                      _buildDetailsHeader(),
+                      const SizedBox(height: 12),
+                      _buildRecordsList(),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
-        ),
       ),
     );
   }
 
-  List<Widget> _buildContent() {
-    if (_loading) {
-      return const [
-        SizedBox(height: 80),
-        Center(child: CircularProgressIndicator(color: AppColors.burgundy)),
-      ];
-    }
+  Widget _buildStatsHeader() {
+    final stats = _monthData?.stats;
+    if (stats == null) return const SizedBox.shrink();
 
-    if (_data == null) {
-      return [
-        const SizedBox(height: 60),
-        Center(
-          child: Column(
-            children: [
-              Text(_error ?? 'حدث خطأ',
-                  style: _t(13, color: AppColors.textGrey)),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _loadMonth,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.burgundy,
-                  foregroundColor: Colors.white,
+    return Row(
+      children: [
+        Expanded(
+          flex: 11,
+          child: Container(
+            height: 115,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF8B222C), Color(0xFF63131A)],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: primaryMaroon.withOpacity(0.25),
+                  blurRadius: 12,
+                  offset: const Offset(0, 6),
                 ),
-                child: Text('إعادة المحاولة',
-                    style:
-                    _t(13, weight: FontWeight.w700, color: Colors.white)),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'معدل الحضور العام',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.85),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${stats.attendanceRate.toInt()}%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        height: 1,
+                      ),
+                    ),
+                    const Icon(
+                      Icons.trending_up_rounded,
+                      color: accentGold,
+                      size: 28,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          flex: 6,
+          child: _buildSmallStatCard(
+            label: 'أيام الحضور',
+            value: '${stats.presentDaysCount}',
+            unit: 'يوم',
+            valueColor: primaryMaroon,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          flex: 6,
+          child: _buildSmallStatCard(
+            label: 'النقاط',
+            value: '${stats.pointsCount}',
+            unit: 'نقطة',
+            valueColor: accentGold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSmallStatCard({
+    required String label,
+    required String value,
+    required String unit,
+    required Color valueColor,
+  }) {
+    return Container(
+      height: 115,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+      decoration: BoxDecoration(
+        color: cardSand,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: textMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              height: 1.1,
+            ),
+          ),
+          Text(
+            unit,
+            style: const TextStyle(
+              color: textMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalendarCard() {
+    final int daysInMonth = DateUtils.getDaysInMonth(
+      _currentMonth.year,
+      _currentMonth.month,
+    );
+    final DateTime firstDayOfMonth = DateTime(
+      _currentMonth.year,
+      _currentMonth.month,
+      1,
+    );
+
+    final int startOffset = firstDayOfMonth.weekday % 7;
+
+    const weekDays = [
+      'الأحد',
+      'الاثنين',
+      'الثلاثاء',
+      'الأربعاء',
+      'الخميس',
+      'الجمعة',
+      'السبت',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.calendar_today_outlined,
+                    color: primaryMaroon,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_getArabicMonthName(_currentMonth.month)} ${_toArabicNumbers(_currentMonth.year.toString())}',
+                    style: const TextStyle(
+                      color: textDark,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  _buildMonthNavBtn(
+                    icon: Icons.chevron_left_rounded,
+                    onTap: () => _changeMonth(-1),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildMonthNavBtn(
+                    icon: Icons.chevron_right_rounded,
+                    onTap: () => _changeMonth(1),
+                  ),
+                ],
               ),
             ],
           ),
-        ),
-      ];
-    }
-
-    final data = _data!;
-    final presentCount = data.entries.where((e) => e.isPresent).length;
-    final absentCount = data.entries.length - presentCount;
-
-    final visible = data.entries.where((e) {
-      switch (_filter) {
-        case _Filter.present:
-          return e.isPresent;
-        case _Filter.absent:
-          return !e.isPresent;
-        case _Filter.all:
-          return true;
-      }
-    }).toList();
-
-    return [
-      _SummaryCard(data: data, monthLabel: _monthLabel(_selectedMonth)),
-      const SizedBox(height: 16),
-      _buildFilterTabs(
-        all: data.entries.length,
-        present: presentCount,
-        absent: absentCount,
-      ),
-      const SizedBox(height: 14),
-      if (visible.isEmpty)
-        _buildEmpty()
-      else
-        ...visible.map(
-              (e) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _EntryCard(entry: e, onTap: () => _onEntryTap(e)),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: weekDays
+                .map(
+                  (d) => Expanded(
+                    child: Center(
+                      child: Text(
+                        d,
+                        style: const TextStyle(
+                          color: textMuted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
           ),
-        ),
-    ];
+          const SizedBox(height: 12),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: daysInMonth + startOffset,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 1,
+            ),
+            itemBuilder: (context, index) {
+              if (index < startOffset) {
+                return const SizedBox.shrink();
+              }
+              final int dayNumber = index - startOffset + 1;
+              final AttendanceStatus status =
+                  _monthData?.dayStatuses[dayNumber] ?? AttendanceStatus.none;
+              final bool isSelected = dayNumber == _selectedDay;
+
+              return GestureDetector(
+                onTap: () => setState(() => _selectedDay = dayNumber),
+                child: _buildCalendarDayCell(dayNumber, status, isSelected),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: Color(0xFFEEEEEE)),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildLegendItem('حاضر', presentGreen),
+              const SizedBox(width: 24),
+              _buildLegendItem('غائب', absentRed),
+              const SizedBox(width: 24),
+              _buildLegendItem('معتذر', accentGold),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
-  // --------------------------------------------------------------- Top bar
-  Widget _buildTopBar() {
+  Widget _buildMonthNavBtn({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: cardSand,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: textDark, size: 20),
+      ),
+    );
+  }
+
+  Widget _buildCalendarDayCell(
+    int day,
+    AttendanceStatus status,
+    bool isSelected,
+  ) {
+    Color? dotColor;
+    if (status == AttendanceStatus.present) dotColor = presentGreen;
+    if (status == AttendanceStatus.absent) dotColor = absentRed;
+    if (status == AttendanceStatus.excused) dotColor = accentGold;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isSelected
+            ? primaryMaroon
+            : (status != AttendanceStatus.none
+                  ? cardSand.withOpacity(0.7)
+                  : Colors.transparent),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '$day',
+            style: TextStyle(
+              color: isSelected ? Colors.white : textDark,
+              fontSize: 13,
+              fontWeight: isSelected || status != AttendanceStatus.none
+                  ? FontWeight.bold
+                  : FontWeight.w500,
+            ),
+          ),
+          if (dotColor != null) ...[
+            const SizedBox(height: 3),
+            Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                color: isSelected ? accentGold : dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendItem(String text, Color color) {
     return Row(
       children: [
         Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: AppColors.burgundy,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.church, color: Colors.white, size: 20),
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        const SizedBox(width: 10),
-        Text('الملاك غبريال',
-            style: _t(15, weight: FontWeight.w800, color: AppColors.burgundy)),
-        const Spacer(),
-        InkWell(
-          onTap: _pickMonth,
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.fieldFill,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.fieldBorder),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.calendar_month_outlined,
-                    color: AppColors.burgundy, size: 18),
-                const SizedBox(width: 6),
-                Text(_monthLabel(_selectedMonth),
-                    style: _t(12, weight: FontWeight.w800)),
-                const SizedBox(width: 4),
-                Icon(Icons.keyboard_arrow_down,
-                    color: AppColors.textGrey, size: 18),
-              ],
-            ),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: const TextStyle(
+            color: textDark,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
     );
   }
 
-  // --------------------------------------------------------- Filter tabs
-  Widget _buildFilterTabs({
-    required int all,
-    required int present,
-    required int absent,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.fieldFill.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.fieldBorder.withOpacity(0.7)),
-      ),
-      child: Row(
-        children: [
-          _FilterTab(
-            label: 'الكل',
-            count: all,
-            icon: Icons.view_list_outlined,
-            iconColor: AppColors.textGrey,
-            chipBg: AppColors.fieldBorder,
-            chipFg: AppColors.textDark,
-            selected: _filter == _Filter.all,
-            onTap: () => setState(() => _filter = _Filter.all),
-          ),
-          _FilterTab(
-            label: 'حاضر',
-            count: present,
-            icon: Icons.check_circle_outline,
-            iconColor: _AC.success,
-            chipBg: _AC.successBg,
-            chipFg: _AC.success,
-            selected: _filter == _Filter.present,
-            onTap: () => setState(() => _filter = _Filter.present),
-          ),
-          _FilterTab(
-            label: 'غائب',
-            count: absent,
-            icon: Icons.cancel_outlined,
-            iconColor: _AC.danger,
-            chipBg: _AC.dangerBg,
-            chipFg: _AC.danger,
-            selected: _filter == _Filter.absent,
-            onTap: () => setState(() => _filter = _Filter.absent),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmpty() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40),
-      child: Column(
-        children: [
-          Icon(Icons.event_busy_outlined,
-              size: 42, color: AppColors.hint.withOpacity(0.9)),
-          const SizedBox(height: 10),
-          Text('لا توجد سجلات في هذا القسم',
-              style: _t(13, color: AppColors.textGrey)),
-        ],
-      ),
-    );
-  }
-}
-
-/* ========================================================================== */
-/*  WIDGETS                                                                   */
-/* ========================================================================== */
-
-BoxDecoration _cardDecoration({double radius = 18}) => BoxDecoration(
-  color: Colors.white,
-  borderRadius: BorderRadius.circular(radius),
-  border: Border.all(color: AppColors.fieldBorder.withOpacity(0.7)),
-  boxShadow: [
-    BoxShadow(
-      color: Colors.black.withOpacity(0.04),
-      blurRadius: 14,
-      offset: const Offset(0, 4),
-    ),
-  ],
-);
-
-/* ------------------------------------------------------------ Summary card */
-class _SummaryCard extends StatelessWidget {
-  final AttendanceMonthData data;
-  final String monthLabel;
-
-  const _SummaryCard({required this.data, required this.monthLabel});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: _cardDecoration(radius: 20),
-      child: Column(
-        children: [
-          // Top gradient strip
-          Container(
-            height: 5,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppColors.burgundy, AppColors.gold, _AC.success],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: AppColors.gold,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text('ملخص $monthLabel',
-                          style: _t(16,
-                              weight: FontWeight.w800,
-                              color: AppColors.burgundy)),
-                    ),
-                    _ring(),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _StatBox(
-                        label: 'إجمالي اللقاءات',
-                        value: '${data.totalCount}',
-                        unit: 'اجتماعات',
-                        labelColor: AppColors.textGrey,
-                        valueColor: AppColors.textDark,
-                        unitColor: AppColors.textDark,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _StatBox(
-                        label: 'مرات الحضور',
-                        value: '${data.presentCount}',
-                        unit: 'حاضر',
-                        labelColor: AppColors.textGrey,
-                        valueColor: AppColors.textDark,
-                        unitColor: _AC.success,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _StatBox(
-                        label: 'مرات الغياب',
-                        value: '${data.absentCount}',
-                        unit: 'غائب',
-                        labelColor: _AC.danger,
-                        valueColor: _AC.danger,
-                        unitColor: _AC.danger,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _ring() {
-    return SizedBox(
-      width: 78,
-      height: 78,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          SizedBox.expand(
-            child: CircularProgressIndicator(
-              value: (data.percent / 100).clamp(0.0, 1.0),
-              strokeWidth: 6,
-              strokeCap: StrokeCap.round,
-              backgroundColor: _AC.successBg,
-              valueColor: const AlwaysStoppedAnimation<Color>(_AC.success),
-            ),
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('${data.percent}%',
-                  style: _t(17, weight: FontWeight.w800)),
-              Text('نسبة الشهر',
-                  style: _t(8.5, color: AppColors.textGrey)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatBox extends StatelessWidget {
-  final String label;
-  final String value;
-  final String unit;
-  final Color labelColor;
-  final Color valueColor;
-  final Color unitColor;
-
-  const _StatBox({
-    required this.label,
-    required this.value,
-    required this.unit,
-    required this.labelColor,
-    required this.valueColor,
-    required this.unitColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-      decoration: BoxDecoration(
-        color: AppColors.fieldFill.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.fieldBorder.withOpacity(0.7)),
-      ),
-      child: Column(
-        children: [
-          Text(label,
-              style: _t(9.5, weight: FontWeight.w700, color: labelColor)),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(value,
-                  style: _t(20, weight: FontWeight.w800, color: valueColor)),
-              const SizedBox(width: 4),
-              Text(unit,
-                  style: _t(10, weight: FontWeight.w700, color: unitColor)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/* ------------------------------------------------------------ Filter tab */
-class _FilterTab extends StatelessWidget {
-  final String label;
-  final int count;
-  final IconData icon;
-  final Color iconColor;
-  final Color chipBg;
-  final Color chipFg;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterTab({
-    required this.label,
-    required this.count,
-    required this.icon,
-    required this.iconColor,
-    required this.chipBg,
-    required this.chipFg,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
-          decoration: BoxDecoration(
-            color: selected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: selected
-                ? [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ]
-                : null,
-          ),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(label,
-                    style: _t(11.5,
-                        weight: FontWeight.w800,
-                        color: selected
-                            ? AppColors.textDark
-                            : AppColors.textGrey)),
-                const SizedBox(width: 5),
-                Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: chipBg,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text('$count',
-                      style: _t(10, weight: FontWeight.w800, color: chipFg)),
-                ),
-                const SizedBox(width: 5),
-                Icon(icon, size: 15, color: iconColor),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/* ------------------------------------------------------------- Entry card */
-class _EntryCard extends StatelessWidget {
-  final AttendanceEntry entry;
-  final VoidCallback onTap;
-
-  const _EntryCard({required this.entry, required this.onTap});
-
-  IconData get _icon {
-    switch (entry.type) {
-      case MeetingType.youth:
-        return Icons.groups_outlined;
-      case MeetingType.bible:
-        return Icons.menu_book_outlined;
-      case MeetingType.prayer:
-        return Icons.volunteer_activism_outlined;
-      case MeetingType.mass:
-        return Icons.church_outlined;
-      case MeetingType.other:
-        return Icons.event_outlined;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final present = entry.isPresent;
-
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: _cardDecoration(radius: 16),
-      child: Stack(
-        children: [
-          InkWell(
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Meeting icon (right side)
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: present ? AppColors.fieldFill : _AC.dangerBg,
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: Icon(
-                      _icon,
-                      size: 24,
-                      color: present ? AppColors.burgundy : _AC.danger,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(entry.title,
-                            style: _t(15, weight: FontWeight.w800, height: 1.3)),
-                        const SizedBox(height: 6),
-                        _meta(Icons.calendar_today_outlined, entry.dateLabel),
-                        const SizedBox(height: 3),
-                        _meta(Icons.access_time, entry.timeLabel),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _statusChip(present),
-                ],
-              ),
-            ),
-          ),
-          // Red accent bar for absent records (right edge in RTL)
-          if (!present)
-            const PositionedDirectional(
-              top: 0,
-              bottom: 0,
-              start: 0,
-              child: SizedBox(
-                width: 4,
-                child: ColoredBox(color: _AC.danger),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _meta(IconData icon, String text) {
+  Widget _buildDetailsHeader() {
     return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Icon(icon, size: 12, color: AppColors.textGrey),
-        const SizedBox(width: 5),
-        Text(text, style: _t(10.5, color: AppColors.textGrey)),
+        const Text(
+          'تفاصيل السجل',
+          style: TextStyle(
+            color: primaryMaroon,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: cardSand,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            'آخر ${_toArabicNumbers((_monthData?.records.length ?? 0).toString())} أسابيع',
+            style: const TextStyle(
+              color: textMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _statusChip(bool present) {
-    final fg = present ? _AC.success : _AC.danger;
-    final bg = present ? _AC.successBg : _AC.dangerBg;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
+  Widget _buildRecordsList() {
+    final records = _monthData?.records ?? [];
+    if (records.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24.0),
+          child: Text(
+            'لا توجد سجلات لهذا الشهر',
+            style: TextStyle(color: textMuted),
           ),
-          const SizedBox(width: 5),
-          Text(present ? 'حاضر' : 'غائب',
-              style: _t(10.5, weight: FontWeight.w800, color: fg)),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: records.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        return _buildRecordCard(records[index]);
+      },
+    );
+  }
+
+  Widget _buildRecordCard(AttendanceRecordModel record) {
+    late Color statusColor;
+    late String statusLabel;
+    late IconData statusIcon;
+    late String subText;
+
+    switch (record.status) {
+      case AttendanceStatus.present:
+        statusColor = presentGreen;
+        statusLabel = 'حاضر';
+        statusIcon = Icons.check_rounded;
+        subText = 'تم التسجيل: ${record.checkInTime ?? ''}';
+        break;
+      case AttendanceStatus.absent:
+        statusColor = absentRed;
+        statusLabel = 'غائب';
+        statusIcon = Icons.close_rounded;
+        subText = record.note ?? 'لم يتم تسجيل الحضور';
+        break;
+      case AttendanceStatus.excused:
+        statusColor = accentGold;
+        statusLabel = 'معتذر';
+        statusIcon = Icons.priority_high_rounded;
+        subText = 'تم قبول الاعتذار مسبقاً';
+        break;
+      case AttendanceStatus.none:
+        statusColor = textMuted;
+        statusLabel = '-';
+        statusIcon = Icons.remove;
+        subText = '';
+        break;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              Container(width: 5, color: statusColor),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(statusIcon, color: statusColor, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              record.title,
+                              style: const TextStyle(
+                                color: textDark,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                if (record.status == AttendanceStatus.present) ...[
+                                  const Icon(
+                                    Icons.access_time_rounded,
+                                    size: 13,
+                                    color: textMuted,
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                Expanded(
+                                  child: Text(
+                                    subText,
+                                    style: const TextStyle(
+                                      color: textMuted,
+                                      fontSize: 11.5,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              statusLabel,
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'الاجتماع ${record.sessionNumber}',
+                            style: TextStyle(
+                              color: textMuted.withOpacity(0.8),
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
